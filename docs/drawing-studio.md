@@ -42,6 +42,7 @@ The La La Land reference remains the opening three bars of Leiki Ueda's arrangem
 - An uploaded exported garden image produced sounding notes; switching it to a reference produced zero notes. Image interpretation/density warnings were displayed. Local draft reload and editable-project import worked.
 - A nine-color test project compiled to nine notes. Browser WAV export yielded nonzero signal in each of its nine instrument windows. No browser audio or JavaScript errors were logged.
 - Grid editor → drawing studio bridge loaded the guide silently with A major, low octave 3, 88 BPM. Make guide playable produced 13 strokes / 13 notes and kept the recording-verification caveat.
+- Visual review confirmed all short imported notes render as dots and the long D4 renders as a line. Erasing D4 changed 13 strokes/notes to 12; Undo restored 13.
 - At a 390-pixel touch viewport the complete canvas fits its available width; it does not require horizontal panning. The temporary test viewport was reset.
 - Cloud deployment runs the test suite before publishing. Publication is confirmed separately from local checks.
 

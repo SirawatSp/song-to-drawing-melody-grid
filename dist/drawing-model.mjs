@@ -116,7 +116,9 @@ export function strokesFromEvents(events,s,voice='keys') {
     const y=yForPitch(e.pitch,s);
     if(y===null||e.start<0||e.start+e.duration>s.beats+1e-7)return null;
     const first=Math.floor(e.start*s.quantize+1e-7),last=Math.ceil((e.start+e.duration)*s.quantize-1e-7)-1;
-    return {voice,size:6,points:[[(first+.5)/(s.beats*s.quantize),y],[(last+.5)/(s.beats*s.quantize),y]]};
+    const points=[[(first+.5)/(s.beats*s.quantize),y]];
+    if(last!==first)points.push([(last+.5)/(s.beats*s.quantize),y]);
+    return {voice,size:6,points};
   }).filter(Boolean);
 }
 export function settingsFromGuide(p) {

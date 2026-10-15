@@ -62,7 +62,7 @@ function renderPaper({exporting=false}={}){
     g.restore();
   }
   g.save();g.beginPath();g.rect(b.x,b.y,b.w,b.h);g.clip();g.lineCap='round';g.lineJoin='round';
-  for(const st of drawing.strokes){g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===st.voice).color;g.lineWidth=st.size;g.beginPath();st.points.forEach(([x,y],i)=>{if(i)g.lineTo(b.x+x*b.w,b.y+y*b.h);else g.moveTo(b.x+x*b.w,b.y+y*b.h);});if(st.points.length===1){g.arc(b.x+st.points[0][0]*b.w,b.y+st.points[0][1]*b.h,st.size/2,0,Math.PI*2);g.fill();}else g.stroke();}
+  for(const st of drawing.strokes){g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===st.voice).color;g.lineWidth=st.size;g.beginPath();st.points.forEach(([x,y],i)=>{if(i)g.lineTo(b.x+x*b.w,b.y+y*b.h);else g.moveTo(b.x+x*b.w,b.y+y*b.h);});const isDot=st.points.every(([x,y])=>x===st.points[0][0]&&y===st.points[0][1]);if(isDot){g.arc(b.x+st.points[0][0]*b.w,b.y+st.points[0][1]*b.h,st.size/2,0,Math.PI*2);g.fill();}else g.stroke();}
   g.restore();
 }
 function point(e){const r=canvas.getBoundingClientRect(),b=bounds();return[Math.max(0,Math.min(1,(e.clientX-r.left-b.x)/b.w)),Math.max(0,Math.min(1,(e.clientY-r.top-b.y)/b.h))];}

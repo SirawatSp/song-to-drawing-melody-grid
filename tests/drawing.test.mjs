@@ -28,6 +28,8 @@ test('reference images and melody guides remain silent until made playable',()=>
 test('the La La Land note events survive conversion to separate drawing strokes',()=>{
   const source=JSON.parse(readFileSync(new URL('../dist/data/mia-sebastian.json',import.meta.url))),p=blankDrawing();
   p.settings=settingsFromGuide(source);p.strokes=strokesFromEvents(source.events,p.settings);
+  assert.equal(p.strokes[0].points.length,1,'a single-cell eighth note must render as a visible dot');
+  assert.equal(p.strokes[6].points.length,2,'the held dotted-half note must render as a line');
   assert.deepEqual(compileDrawing(p).events.map(({voice,...e})=>e),source.events);assert.equal(p.settings.key,9);assert.equal(p.settings.octave,3);
 });
 test('dense art reports limited polyphony instead of claiming exact conversion',()=>{
