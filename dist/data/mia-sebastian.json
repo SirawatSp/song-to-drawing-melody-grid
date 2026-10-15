@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "title": "Mia & Sebastian’s Theme",
+  "section": "Opening three bars · right-hand melody only",
+  "bpm": 88,
+  "beatsPerBar": 3,
+  "totalBeats": 9,
+  "provenance": {
+    "status": "score-read",
+    "source": "https://www.leikiueda.com/_files/ugd/9bd8f4_3e2b34d2233d4f46a1d8de1c1430d47c.pdf",
+    "label": "Leiki Ueda’s own published arrangement, page 1, bars 1–3",
+    "checked": "2026-10-16",
+    "limitation": "Pitches and written durations manually read from the score. Seconds use its printed quarter-note tempo of 88 BPM. No recording or MIDI comparison; rubato, articulation and pedal are not transcribed. This is not a verified transcription of the soundtrack recording."
+  },
+  "pmt": {"key": 9, "scale": "major", "range": 1, "octave": 1, "canvasBeats": 16, "subdivision": 2},
+  "events": [
+    {"pitch": 61, "start": 0, "duration": 0.5},
+    {"pitch": 66, "start": 0.5, "duration": 0.5},
+    {"pitch": 68, "start": 1, "duration": 0.5},
+    {"pitch": 69, "start": 1.5, "duration": 0.5},
+    {"pitch": 68, "start": 2, "duration": 0.5},
+    {"pitch": 66, "start": 2.5, "duration": 0.5},
+    {"pitch": 62, "start": 3, "duration": 3},
+    {"pitch": 62, "start": 6, "duration": 0.5},
+    {"pitch": 66, "start": 6.5, "duration": 0.5},
+    {"pitch": 68, "start": 7, "duration": 0.5},
+    {"pitch": 69, "start": 7.5, "duration": 0.5},
+    {"pitch": 68, "start": 8, "duration": 0.5},
+    {"pitch": 66, "start": 8.5, "duration": 0.5}
+  ]
+}
