@@ -2,6 +2,20 @@
 
 A persistent, versioned visual reference studio for turning **note events into drawing guides**.
 
+## New: Singing Sketchbook
+
+**Draw and hear your own picture:** https://sirawatsp.github.io/song-to-drawing-melody-grid/paint.html
+
+Choose from nine instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, or a WAV audio loop. All drawing controls are available without an unlock. The nine sounds are original synthesized timbres.
+
+The grid editor's **Draw this melody** button sends its current note events to the sketchbook as a silent guide. **Make guide playable** creates separate colored strokes; source pitches outside the selected key/range are flagged, and timing approximated by Snap is reported. The existing melody source and recording-verification limits still apply.
+
+Drawing data autosaves in this browser. Imported images stay local; they are not uploaded to the repository or a transcription service. Download editable JSON to move a drawing between devices. The cloud repository stores the app and our original example, not automatic account-synced personal drawings.
+
+Original example: [garden drawing](dist/downloads/singing-garden.drawing.json), [PNG](dist/downloads/singing-garden.png), [WAV](dist/downloads/singing-garden.wav). Implementation and verification: [docs/drawing-studio.md](docs/drawing-studio.md).
+
+## Melody grid
+
 - Live studio: https://SirawatSp.github.io/song-to-drawing-melody-grid/
 - Drawing instrument: https://playmusictheory.net/play
 - Default study: opening three bars of **Mia & Sebastian's Theme**, from Leiki Ueda's own arrangement. Right-hand melody only; about **6.14 seconds at the score's printed 88 BPM**.
