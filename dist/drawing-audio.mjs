@@ -65,8 +65,11 @@ export function encodeWav(channels,sampleRate){
   for(let i=0,at=44;i<frames;i++)for(const ch of channels){const n=Math.max(-1,Math.min(1,ch[i]));v.setInt16(at,n<0?n*32768:n*32767,true);at+=2;}
   return buffer;
 }
-export async function renderWav(events,settings,volume=.65){
+export async function renderAudioBuffer(events,settings,volume=.65){
   const rate=44100,length=Math.ceil((settings.beats*60/settings.bpm+.5)*rate),ctx=new OfflineAudioContext(1,length,rate),out=makeOutput(ctx,volume);
   for(const e of events)scheduleNote(ctx,out,e,0,60/settings.bpm);
-  const audio=await ctx.startRendering();return encodeWav([audio.getChannelData(0)],rate);
+  return ctx.startRendering();
+}
+export async function renderWav(events,settings,volume=.65){
+  const audio=await renderAudioBuffer(events,settings,volume);return encodeWav([audio.getChannelData(0)],audio.sampleRate);
 }

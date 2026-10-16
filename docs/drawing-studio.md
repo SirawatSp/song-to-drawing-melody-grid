@@ -11,7 +11,7 @@ This is an original browser drawing instrument inspired by the draw-to-music int
 - Play left-to-right, loop or play once, stop, change tempo/volume/key/scale/octave/range/grid subdivision.
 - Open PNG/JPEG/WebP drawings (up to 10 MB). Hear approximate palette colors, use one voice, or keep the image silent for tracing. Background/light pixels are ignored with adjustable sensitivity.
 - Import a melody guide from the existing grid editor, or load the score-based La La Land study. Guides are silent; a separate button converts their events into colored strokes. Missing pitches and quantization approximation are reported.
-- Download editable drawing JSON (including its image), PNG artwork, or mono 44.1 kHz PCM WAV audio (one canvas loop plus a 0.5-second release tail).
+- Download editable drawing JSON (including its image), PNG artwork, MP4 video (still drawing + sound), or mono 44.1 kHz PCM WAV audio (one canvas loop plus a 0.5-second release tail).
 - Autosave on this device. Imported images are processed in the browser and are not sent to a service. Export JSON for portability. Code and the original garden example live in the existing GitHub cloud repository.
 
 ## Musical mapping
@@ -49,3 +49,15 @@ The La La Land reference remains the opening three bars of Leiki Ueda's arrangem
 ## Technical references
 
 Implementation uses the browser's standard [Pointer Events](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events/Using_Pointer_Events), [AudioContext resume](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/resume) and [OfflineAudioContext](https://developer.mozilla.org/en-US/docs/Web/API/OfflineAudioContext). No API keys or server dependencies are needed.
+
+## MP4 export
+
+`drawing-video.mjs` combines a frozen, clean canvas image with the shared offline audio renderer using Canvas capture, Web Audio's media-stream destination and native MediaRecorder. It records in real time, once, with the same 0.5-second release tail as WAV, plus about 0.2 seconds of recording padding. No live microphone or camera is used. Sound is recorded without monitoring it through the speakers.
+
+The frame retains the current paper proportions, has even dimensions for encoders, and is capped at 1920×1080 without upscaling. Neither grid nor silent melody guides are included. The current imported image remains visible, including its reference opacity; silent reference pixels never add notes. Video and music are captured together before awaiting encoding, so changes/resizing do not alter an export in progress.
+
+MP4 capability is detected, preferring H.264/AAC, then H.264/Opus, then the browser's native `video/mp4` choice. A file must have an ISO BMFF `ftyp` signature before it is offered as MP4; WebM is never renamed. Native support and playback compatibility vary by browser/device. Unsupported encoding reports an error with PNG/WAV alternatives. Recording failures, cancellation, tab hiding and suspended audio all discard partial output and release streams, timers and the audio context. Preview/download are explicit user actions for mobile browsers.
+
+Source API references: [MediaRecorder support detection](https://developer.mozilla.org/en-US/docs/Web/API/MediaRecorder/isTypeSupported_static), [canvas captureStream](https://developer.mozilla.org/en-US/docs/Web/API/HTMLCanvasElement/captureStream), [Web Audio stream destination](https://developer.mozilla.org/en-US/docs/Web/API/AudioContext/createMediaStreamDestination).
+
+Pull requests run tests in `pr-check.yml` with read-only repository permissions. The existing main-only publication workflow is unchanged.

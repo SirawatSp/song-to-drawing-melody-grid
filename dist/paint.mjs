@@ -1,11 +1,13 @@
 import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,pixelsToPoints,strokesFromEvents,settingsFromGuide,gardenDrawing} from './drawing-model.mjs';
 import {DrawingPlayer,renderWav} from './drawing-audio.mjs';
+import {renderMp4} from './drawing-video.mjs';
 import {noteName,validate as validateGuide} from './model.mjs';
 
 const $=id=>document.getElementById(id),canvas=$('drawing'),paper=$('paper');
 const STORAGE='singing-sketchbook-v1',history=[],future=[];
 let drawing=blankDrawing(),selected='keys',tool='pen',grid=true,showGuide=true,active=null,beforeGesture=null;
 let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,previewURL=null,saveTimer=0,renderFrame=0;
+let videoExport=null,videoURL=null;
 const player=new DrawingPlayer(progress=>{
   const head=$('playhead');head.hidden=progress===null;
   if(progress!==null){const b=bounds();head.style.left=(b.x+progress*b.w)+'px';$('play-position').textContent=(progress*drawing.settings.beats).toFixed(1)+' / '+drawing.settings.beats+' beats';}
@@ -122,6 +124,35 @@ async function applyImage(){
   if(!points.length&&mode!=='reference')say('No dark or colored marks were found. Try a darker drawing or lower “Ignore light background”.');
   else if(!compiled.dropped)say(mode==='reference'?'Image added as a silent reference. Draw colored marks on top.':'Image added. Press Play to hear its colors. This is an approximate musical interpretation.');
 }
+async function exportVideo(){
+  if(videoExport)return;
+  if(!compiled.events.length){say('Draw something musical first, or make your imported image sing.');return;}
+  if(compiled.events.length>1500)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');
+  stop();
+  // Freeze both image and music before awaiting anything. Later edits and window
+  // resizing cannot change the exported artwork or its notes.
+  renderPaper({exporting:true});
+  const frame=document.createElement('canvas'),scale=Math.min(1,1920/canvas.width,1080/canvas.height);
+  frame.width=Math.max(2,Math.floor(canvas.width*scale/2)*2);frame.height=Math.max(2,Math.floor(canvas.height*scale/2)*2);
+  frame.getContext('2d').drawImage(canvas,0,0,frame.width,frame.height);requestRender();
+  const events=structuredClone(compiled.events),settings={...drawing.settings},name=fileName()+'.mp4';
+  if(videoURL){URL.revokeObjectURL(videoURL);videoURL=null;}
+  const preview=$('video-preview'),link=$('video-download');preview.pause();preview.removeAttribute('src');preview.load();preview.hidden=true;link.hidden=true;link.removeAttribute('href');
+  const controller=new AbortController();videoExport=controller;
+  $('video-progress').hidden=false;$('video-progress').value=0;$('video-status').textContent='Preparing sound…';$('video-status').classList.remove('error');$('video-close').textContent='Cancel export';$('export-video').disabled=true;
+  $('video-dialog').showModal();
+  try{
+    const blob=await renderMp4({canvas:frame,events,settings,volume:Number($('paint-volume').value)/100,signal:controller.signal,onProgress:(progress,label)=>{$('video-progress').value=progress;$('video-status').textContent=label+' '+Math.round(progress*100)+'%';}});
+    videoURL=URL.createObjectURL(blob);preview.src=videoURL;preview.hidden=false;link.href=videoURL;link.download=name;link.hidden=false;
+    $('video-status').textContent='Ready: your drawing and sound, one loop with a short ringing tail. Preview it, then download your MP4.';say('Video ready. Download your MP4 from the preview.');
+  }catch(e){
+    const cancelled=controller.signal.aborted;
+    $('video-status').textContent=cancelled?'Video export cancelled. Your drawing is safe.':e.message||String(e);$('video-status').classList.toggle('error',!cancelled);
+    say(cancelled?'Video export cancelled.':e.message||String(e),!cancelled);
+  }finally{
+    videoExport=null;$('export-video').disabled=false;$('video-progress').hidden=true;$('video-close').textContent='Close';
+  }
+}
 function bind(){
   $('pen-tool').onclick=()=>setTool('pen');$('eraser-tool').onclick=()=>setTool('erase');$('undo-drawing').onclick=safe(undo);$('redo-drawing').onclick=safe(redo);
   $('grid-toggle').onclick=()=>{grid=!grid;$('grid-toggle').setAttribute('aria-pressed',grid);requestRender();};
@@ -153,6 +184,10 @@ function bind(){
   $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>6000000)throw Error('Choose a drawing project smaller than 6 MB.');const p=validateDrawing(JSON.parse(await file.text()));await replace(p);say('Editable drawing opened.');e.target.value='';});
   $('export-picture').onclick=safe(async()=>{renderPaper({exporting:true});try{const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('Picture export failed. Please try again.');download(blob,fileName()+'.png');say('Picture saved. Silent melody guides are left out of the exported drawing.');}finally{requestRender();}});
   $('export-wav').onclick=safe(async()=>{if(!compiled.events.length){say('Draw something musical first.');return;}if(compiled.events.length>1500)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');const btn=$('export-wav');btn.disabled=true;btn.textContent='Rendering audio…';say('Making one full loop of your drawing into a WAV file…');try{const wav=await renderWav(compiled.events,drawing.settings,Number($('paint-volume').value)/100);download(new Blob([wav],{type:'audio/wav'}),fileName()+'.wav');say('Audio saved: one loop with a short ringing tail.');}finally{btn.disabled=false;btn.textContent='↓ Audio WAV';}});
+  $('export-video').onclick=safe(exportVideo);
+  $('video-close').onclick=()=>{if(videoExport)videoExport.abort();else $('video-dialog').close();};
+  $('video-dialog').addEventListener('cancel',e=>{if(videoExport){e.preventDefault();videoExport.abort();}});
+  $('video-dialog').addEventListener('close',()=>{$('video-preview').pause();});
   $('help-open').onclick=()=>$('help-dialog').showModal();
   document.addEventListener('keydown',safe(async e=>{
     if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||document.querySelector('dialog[open]'))return;
@@ -160,7 +195,7 @@ function bind(){
     else if(e.code==='Space'){e.preventDefault();if(player.playing)stop();else await playEvents(compiled.events);}
     else if(e.key.toLowerCase()==='p')setTool('pen');else if(e.key.toLowerCase()==='e')setTool('erase');
   }));
-  window.addEventListener('pagehide',()=>{stop();clearTimeout(saveTimer);try{localStorage.setItem(STORAGE,JSON.stringify(drawing));}catch{}});
+  window.addEventListener('pagehide',()=>{stop();videoExport?.abort();clearTimeout(saveTimer);try{localStorage.setItem(STORAGE,JSON.stringify(drawing));}catch{}});
   document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
   new ResizeObserver(requestRender).observe(paper);
 }
