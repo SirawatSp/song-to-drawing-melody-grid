@@ -70,3 +70,11 @@ test('unsupported browsers and drawings without sounding notes report actionable
   MediaRecorder.isTypeSupported=()=>true;
   await assert.rejects(renderMp4({...options(canvas),events:[]}),/musical first/);
 });
+
+
+test('animated painter runs before capture and during recording on the audio clock',async()=>{
+  const canvas=environment();mode='wait';const frames=[],controller=new AbortController();
+  const promise=renderMp4({...options(canvas),painter:Promise.resolve({canvas,drawFrame:t=>frames.push(t)}),signal:controller.signal});
+  setTimeout(()=>controller.abort(),90);await assert.rejects(promise,{name:'AbortError'});
+  assert.ok(frames.length>=2);assert.equal(frames[0],0);cleaned();
+});

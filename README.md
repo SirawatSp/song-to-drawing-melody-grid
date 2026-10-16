@@ -10,15 +10,29 @@ Choose from nine instrument colors, draw with a mouse/finger/pen, then press Pla
 
 The grid editor's **Draw this melody** button sends its current note events to the sketchbook as a silent guide. **Make guide playable** creates separate colored strokes; source pitches outside the selected key/range are flagged, and timing approximated by Snap is reported. The existing melody source and recording-verification limits still apply.
 
-Drawing data autosaves in this browser. Imported images stay local; they are not uploaded to the repository or a transcription service. Download editable JSON to move a drawing between devices. The cloud repository stores the app and our original example, not automatic account-synced personal drawings.
+Drawing sequences autosave in this browser. Imported images stay local; they are not uploaded to the repository or a transcription service. Download editable sequence JSON to move drawings between devices. The cloud repository stores the app and our original example, not automatic account-synced personal drawings.
 
 Original example: [garden drawing](dist/downloads/singing-garden.drawing.json), [PNG](dist/downloads/singing-garden.png), [WAV](dist/downloads/singing-garden.wav). Implementation and verification: [docs/drawing-studio.md](docs/drawing-studio.md).
 
-## Export a drawing with sound
+## Arrange plans as a sequence
 
-Choose **Video MP4** under **Keep your creation**, wait for one loop to record, then preview and choose **Download MP4**. It exports a still image of your paper with the same synthesized sound as WAV (one canvas loop plus a 0.5-second ringing tail). Grid and silent melody guides are omitted; imported pictures retain their current sound/reference treatment. The image and note events are frozen when you start.
+Use **Import plans as sections** to import several PNG/JPG/WebP drawings at once, or **Add section** for another drawing. Each section keeps its own title, image, strokes, tempo, key, scale and canvas length. Use **Move earlier / Move later**, **Duplicate**, and **Remove section** to arrange the selected section; Undo restores removals and order changes.
 
-Keep this tab visible until it finishes. Cancel is available, and interruptions discard incomplete recordings. Everything runs locally; no microphone, camera, upload, external encoder or runtime dependency is needed. Native MP4 encoding is checked before recording; unsupported browsers show a clear message and retain PNG/WAV exports. H.264/AAC is preferred, with H.264/Opus or the browser's native MP4 choice when needed. Actual codec availability and playback compatibility depend on the browser/device. This does not promise universal MP4 export support.
+**Play drawing** auditions the selected section. **Play sequence** plays every section continuously and switches the visible drawing at each boundary. Loop repeats the whole sequence. Empty or silent sections keep their full duration as rests. Bar grouping can be 3/4, 4/4 or 6/4; this groups quarter-note beats without changing pitches or note times. A section may span multiple bars or finish partway through a bar.
+
+Projects support up to **64 sections**, **100 MB of embedded image data**, and **10 minutes / 12,000 notes** per playback/export, with at most 1,500 notes in any section. Image input is limited to 10 MB per file. Dense pictures remain approximate pixel interpretations, with up to 12 simultaneous notes.
+
+**Save editable sequence** stores all sections, embedded images, order and musical settings in one JSON file. **Open saved project** accepts both sequences and older single-drawing JSON files. Autosave uses IndexedDB on this device (with a small local-storage fallback); older local drafts migrate without deleting their original copy. This is not automatic cloud/account sync. Export JSON for cross-device work and backups.
+
+## Export drawings with sound
+
+Choose **All sections in order** or **Selected section only** for WAV and MP4. PNG saves only the selected drawing without musical guides.
+
+**Video MP4** now creates a **1280×720 animated musical view**: the drawing, pitch lanes, beat/bar grid, key, scale, tempo, bar/beat position, moving playhead, section strip and overall timeline. At each section boundary the drawing and its musical labels change together. Silent melody guides are omitted and do not sound. The source events and visual annotations remain separate.
+
+The snapshot of the whole sequence is frozen at export start. Audio uses the shared WAV renderer, with exact per-section tempo conversion and one 0.5-second final release tail; release sounds may overlap a section boundary naturally. Native recording adds about 0.2 seconds of padding. Preview and choose **Download MP4** after recording. Keep the tab visible; encoding takes about as long as the music. Cancellation/interruption discards incomplete output.
+
+Everything runs locally without microphone/camera access, uploads, an external encoder or runtime dependencies. MP4 support is checked before encoding; H.264/AAC is preferred, followed by H.264/Opus or the native MP4 choice. Codec availability and playback compatibility depend on the browser/device. PNG/WAV remain available when native MP4 encoding is unsupported.
 
 ## Melody grid
 

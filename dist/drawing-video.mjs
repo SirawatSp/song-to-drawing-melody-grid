@@ -16,12 +16,13 @@ export async function isMp4(blob){
   return blob.size>=16&&new TextDecoder().decode(await blob.slice(4,8).arrayBuffer())==='ftyp';
 }
 
-export async function renderMp4({canvas,events,settings,volume=.65,signal,onProgress=()=>{}}){
+export async function renderMp4({canvas,events,settings,volume=.65,signal,onProgress=()=>{},drawFrame=null,painter=null}){
   const mimeType=mp4MimeType();
-  if(!mimeType||typeof canvas.captureStream!=='function'||!globalThis.AudioContext)
+  if(!mimeType||(!painter&&typeof canvas?.captureStream!=='function')||!globalThis.AudioContext)
     throw Error('MP4 export is unavailable in this browser. Try a current Chrome, Edge or Safari browser. PNG and WAV export are still available.');
   if(!events.length)throw Error('Draw something musical first, or make your imported image sing.');
-  if(events.length>1500)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');
+  if(events.length>12000)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');
+  if(settings.beats*60/settings.bpm>600)throw Error('Export up to 10 minutes at once. Split the sequence into shorter projects.');
   signal?.throwIfAborted();
   if(document.hidden)throw Error('Keep this tab visible while exporting the video.');
   const ctx=new AudioContext();
@@ -32,6 +33,8 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
     // Resume during the export button's user gesture, before offline rendering.
     await ctx.resume();
     if(ctx.state!=='running')throw Error('Tap Video MP4 again to allow audio in this browser.');
+    if(painter){const ready=await painter;canvas=ready.canvas;drawFrame=ready.drawFrame;}
+    signal?.throwIfAborted();
     onProgress(0,'Preparing sound…');
     const audio=await renderAudioBuffer(events,settings,volume);
     signal?.throwIfAborted();
@@ -39,6 +42,7 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
     if(ctx.state!=='running')throw Error('Audio was interrupted. Keep this tab active and try exporting again.');
     destination=ctx.createMediaStreamDestination();
     source=ctx.createBufferSource();source.buffer=audio;source.connect(destination);
+    drawFrame?.(0);
     stream=canvas.captureStream(30);
     for(const track of destination.stream.getAudioTracks())stream.addTrack(track);
     recorder=new MediaRecorder(stream,{mimeType,videoBitsPerSecond:4000000,audioBitsPerSecond:128000});
@@ -61,8 +65,10 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
       const g=canvas.getContext('2d');
       tick=setInterval(()=>{
         // Static artwork still needs frames on browsers that capture changes.
-        g.drawImage(canvas,0,0);
-        onProgress(Math.max(0,Math.min(1,(ctx.currentTime-start)/audio.duration)),'Recording video…');
+        try{
+          if(drawFrame)drawFrame(Math.max(0,ctx.currentTime-start));else g.drawImage(canvas,0,0);
+          onProgress(Math.max(0,Math.min(1,(ctx.currentTime-start)/audio.duration)),'Recording video…');
+        }catch(e){reject(e);}
       },1000/30);
       watchdog=setTimeout(()=>reject(Error('Video export timed out. Keep this tab active and try again.')),(audio.duration+8)*1000);
       recorder.start();
