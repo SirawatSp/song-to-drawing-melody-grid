@@ -1,3 +1,4 @@
+import {MAX_PROJECT_IMAGE_CHARS} from './image-data.mjs';
 import {blankDrawing,validateDrawing,compileDrawing} from './drawing-model.mjs';
 export const MAX_SECTIONS=64;
 export function blankSequence(drawing=blankDrawing()){
@@ -9,7 +10,7 @@ export function validateSequence(raw){
     throw Error('Choose a drawing or sequence project with 1–64 sections.');
   if(![3,4,6].includes(raw.beatsPerBar)||!Number.isInteger(raw.active)||raw.active<0||raw.active>=raw.sections.length)throw Error('The sequence has invalid bar or section settings.');
   const sections=raw.sections.map(validateDrawing);
-  if(sections.reduce((n,s)=>n+(s.image?.dataURL.length||0),0)>100000000)throw Error('Keep embedded images under 100 MB per sequence. Split this project into smaller sequences.');
+  if(sections.reduce((n,s)=>n+(s.image?.dataURL.length||0),0)>MAX_PROJECT_IMAGE_CHARS)throw Error('Keep embedded images under 256 MB per sequence. Split this project into smaller sequences.');
   return {format:raw.format,version:1,title:String(raw.title||'My drawing sequence').slice(0,120),beatsPerBar:raw.beatsPerBar,active:raw.active,sections};
 }
 export function compileSequence(project){

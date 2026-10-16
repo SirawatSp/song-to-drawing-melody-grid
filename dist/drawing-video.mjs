@@ -26,14 +26,14 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
   signal?.throwIfAborted();
   if(document.hidden)throw Error('Keep this tab visible while exporting the video.');
   const ctx=new AudioContext();
-  let stream,destination,recorder,source,tick,finishTimer,watchdog,fail=()=>{};
+  let stream,destination,recorder,source,tick,finishTimer,watchdog,preparedPainter,fail=()=>{};
   const abort=()=>fail(signal.reason||new DOMException('Video export cancelled.','AbortError'));
   const hidden=()=>{if(document.hidden)fail(Error('Video export was interrupted. Keep this tab visible and try again.'));};
   try{
     // Resume during the export button's user gesture, before offline rendering.
     await ctx.resume();
     if(ctx.state!=='running')throw Error('Tap Video MP4 again to allow audio in this browser.');
-    if(painter){const ready=await painter;canvas=ready.canvas;drawFrame=ready.drawFrame;}
+    if(painter){preparedPainter=await painter;canvas=preparedPainter.canvas;drawFrame=preparedPainter.drawFrame;}
     signal?.throwIfAborted();
     onProgress(0,'Preparing sound…');
     const audio=await renderAudioBuffer(events,settings,volume);
@@ -80,6 +80,7 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
     if(!await isMp4(blob))throw Error('The browser did not produce a valid MP4 file. Try another browser, or export PNG and WAV.');
     return blob;
   }finally{
+    preparedPainter?.dispose?.();
     clearInterval(tick);clearTimeout(finishTimer);clearTimeout(watchdog);
     signal?.removeEventListener('abort',abort);document.removeEventListener('visibilitychange',hidden);
     ctx.onstatechange=null;
