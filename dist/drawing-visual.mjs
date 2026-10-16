@@ -7,7 +7,7 @@ const KEYS=['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
 export const musicalLabel=s=>`${KEYS[s.key]} ${s.scale==='chromatic'?'chromatic':s.scale} · ${s.bpm} BPM`;
 export function paintMarks(g,drawing,image,b,scale=1){
   g.save();g.beginPath();g.rect(b.x,b.y,b.w,b.h);g.clip();
-  if(image){g.globalAlpha=drawing.image?.mode==='reference'?.28:.93;g.drawImage(image,b.x,b.y,b.w,b.h);g.globalAlpha=1;}
+  if(image){g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.globalAlpha=drawing.image?.mode==='reference'?.28:.93;g.drawImage(image,b.x,b.y,b.w,b.h);g.globalAlpha=1;}
   g.lineCap='round';g.lineJoin='round';
   for(const stroke of drawing.strokes){
     g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===stroke.voice).color;g.lineWidth=stroke.size*scale;g.beginPath();

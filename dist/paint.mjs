@@ -104,7 +104,7 @@ function renderPaper({exporting=false}={}){
   const g=canvas.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);g.fillStyle='#fffdf8';g.fillRect(0,0,w,h);
   const displayed=sequencePlayback?.segments[playbackIndex]?.drawing||drawing,displayImage=sequencePlayback?(playbackIndex>=0?playbackImages.get(playbackIndex):null):imageBitmap;
   const b=bounds(),s=displayed.settings,notes=pitchesFor(s),rowH=b.h/notes.length;
-  if(displayImage){g.save();g.globalAlpha=displayed.image?.mode==='reference'?.28:.93;g.drawImage(displayImage,b.x,b.y,b.w,b.h);g.restore();}
+  if(displayImage){g.save();g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.globalAlpha=displayed.image?.mode==='reference'?.28:.93;g.drawImage(displayImage,b.x,b.y,b.w,b.h);g.restore();}
   if(grid&&!exporting){
     g.save();g.font='9px Verdana,sans-serif';g.textBaseline='middle';
     notes.forEach((pitch,i)=>{

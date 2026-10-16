@@ -15,7 +15,7 @@ export async function prepareImage(file,policy,{makeCanvas,decode,toURL,progress
     const full=g.getImageData(0,0,visual.width,visual.height).data;
     progress('Preserving fine plan lines',.4);
     const pixels=await poolInkPixels(full,visual.width,visual.height,fit.analysisWidth,fit.analysisHeight,{signal,yieldControl});
-    thumbnail=makeCanvas(Math.min(384,fit.width),Math.min(192,fit.height));thumbnail.getContext('2d').drawImage(visual,0,0,thumbnail.width,thumbnail.height);
+    thumbnail=makeCanvas(Math.min(384,fit.width),Math.min(192,fit.height));const thumb=thumbnail.getContext('2d');thumb.imageSmoothingEnabled=true;thumb.imageSmoothingQuality='high';thumb.drawImage(visual,0,0,thumbnail.width,thumbnail.height);
     progress('Keeping image detail',.65);
     const dataURL=await toURL(visual),preview=await toURL(thumbnail);
     if(dataURL.length>MAX_IMAGE_DATA_CHARS)throw Error('This plan needs too much memory at this quality. Choose Balanced and try again.');
