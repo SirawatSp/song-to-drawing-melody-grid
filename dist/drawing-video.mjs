@@ -53,24 +53,22 @@ export async function renderMp4({canvas,events,settings,volume=.65,signal,onProg
       recorder.onerror=()=>reject(Error('This browser could not encode the MP4. Try another browser, or export PNG and WAV.'));
       recorder.onstop=()=>completed?resolve(new Blob(chunks,{type:'video/mp4'})):reject(Error('Video recording stopped before it finished. Please try again.'));
       for(const track of stream.getTracks())track.onended=()=>reject(Error('Video export was interrupted. Please try again.'));
-      recorder.onstart=()=>{
-        try{
-        const start=ctx.currentTime+.1;
-        source.onended=()=>{
-          onProgress(1,'Finishing video…');
-          finishTimer=setTimeout(()=>{completed=true;if(recorder.state!=='inactive')recorder.stop();},100);
-        };
-        source.start(start);
-        const g=canvas.getContext('2d');
-        tick=setInterval(()=>{
-          // Static artwork still needs frames on browsers that capture changes.
-          g.drawImage(canvas,0,0);
-          onProgress(Math.max(0,Math.min(1,(ctx.currentTime-start)/audio.duration)),'Recording video…');
-        },1000/30);
-        }catch(e){reject(e);}
+      const start=ctx.currentTime+.1;
+      source.onended=()=>{
+        onProgress(1,'Finishing video…');
+        finishTimer=setTimeout(()=>{completed=true;if(recorder.state!=='inactive')recorder.stop();},100);
       };
+      const g=canvas.getContext('2d');
+      tick=setInterval(()=>{
+        // Static artwork still needs frames on browsers that capture changes.
+        g.drawImage(canvas,0,0);
+        onProgress(Math.max(0,Math.min(1,(ctx.currentTime-start)/audio.duration)),'Recording video…');
+      },1000/30);
       watchdog=setTimeout(()=>reject(Error('Video export timed out. Keep this tab active and try again.')),(audio.duration+8)*1000);
       recorder.start();
+      // Some recorders emit `start` only after receiving media. Starting the
+      // source inside onstart would leave both sides waiting for each other.
+      source.start(start);
     });
     signal?.throwIfAborted();
     if(!await isMp4(blob))throw Error('The browser did not produce a valid MP4 file. Try another browser, or export PNG and WAV.');

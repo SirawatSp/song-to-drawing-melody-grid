@@ -27,7 +27,7 @@ function environment(){
   class Recorder{
     static isTypeSupported(type){return type==='video/mp4';}
     constructor(...args){this.offline=!!args.length;this.state='inactive';recorders.push(this);}
-    start(){this.state='recording';setTimeout(()=>{if(mode==='error')this.onerror?.();else this.onstart?.();},0);}
+    start(){this.state='recording';setTimeout(()=>{if(mode==='error')this.onerror?.();/* start can wait until media arrives */},0);}
     stop(){this.state='inactive';this.ondataavailable?.({data:mode==='invalid'?new Blob(['webm data']):mp4()});this.onstop?.();}
   }
   globalThis.AudioContext=globalThis.OfflineAudioContext=Context;
@@ -47,7 +47,7 @@ test('file validation rejects WebM content even when labeled MP4',async()=>{
   assert.equal(await isMp4(mp4()),true);
   assert.equal(await isMp4(new Blob(['this is webm data'],{type:'video/mp4'})),false);
 });
-test('export yields actual MP4 bytes and releases its context and tracks',async()=>{
+test('export starts media without waiting for recorder onstart and releases resources',async()=>{
   const blob=await renderMp4(options(environment()));assert.equal(blob.type,'video/mp4');assert.ok(await isMp4(blob));cleaned();
 });
 test('cancellation releases all media resources and does not return a partial video',async()=>{
