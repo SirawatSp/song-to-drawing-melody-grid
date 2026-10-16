@@ -6,7 +6,7 @@ This is an original browser drawing instrument inspired by the draw-to-music int
 
 ## What you can do
 
-- Draw with pointer events (mouse, touch or pen); use nine clearly labeled instrument colors.
+- Draw with pointer events (mouse, touch or pen); use 16 clearly labeled instrument colors.
 - Erase an entire stroke, undo/redo up to 40 changes, clear reversibly, show/hide the grid, choose ink size.
 - Play left-to-right, loop or play once, stop, change tempo/volume/key/scale/octave/range/grid subdivision.
 - Open PNG/JPEG/WebP drawings (up to 100 MB). Hear approximate palette colors, use one voice, or keep the image silent for tracing. Background/light pixels are ignored with adjustable sensitivity.
