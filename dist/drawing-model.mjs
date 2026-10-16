@@ -1,17 +1,8 @@
 import {validImageURL,validateSamples,sampleCodes} from './image-data.mjs';
 // Original drawing-to-notes engine. Coordinates are normalized so resizing
 // changes the paper, not the music. One separate stroke is one separate voice.
-export const VOICES = [
-  {id:'keys', name:'Keys', color:'#1D9E75', hint:'Soft piano-like notes'},
-  {id:'pluck', name:'Pluck', color:'#D85A30', hint:'A bright plucked string'},
-  {id:'bell', name:'Bell', color:'#7F77DD', hint:'Round, ringing bells'},
-  {id:'marimba', name:'Marimba', color:'#EF9F27', hint:'Warm wooden taps'},
-  {id:'flute', name:'Flute', color:'#3E5EC6', hint:'A gentle, airy tone'},
-  {id:'strings', name:'Strings', color:'#DE7BAE', hint:'Slow, soft bowed tones'},
-  {id:'chime', name:'Chime', color:'#85BEE8', hint:'Light, glassy ringing'},
-  {id:'bass', name:'Bass', color:'#33312B', hint:'A rounded, mellow tone'},
-  {id:'8bit', name:'8-bit', color:'#F4BE82', hint:'A little video-game voice'}
-];
+import {VOICES} from './drawing-voices.mjs';
+export {VOICES} from './drawing-voices.mjs';
 export const SCALE_INTERVALS = {
   pentatonic:[0,2,4,7,9], major:[0,2,4,5,7,9,11],
   minor:[0,2,3,5,7,8,10], chromatic:[0,1,2,3,4,5,6,7,8,9,10,11]
@@ -164,5 +155,18 @@ export function gardenDrawing() {
     stroke('marimba',[[cx-.006,cy],[cx+.006,cy]],12);
   }
   for(const[x,y]of[[.08,.14],[.36,.1],[.65,.12],[.93,.19]]){stroke('bell',[[x-.012,y],[x+.012,y]],5);stroke('chime',[[x,y-.025],[x,y+.025]],5);}
+  return p;
+}
+
+// An original eight-beat phrase, unrelated to the sourced melody study.
+export function orchestraDrawing(){
+  const p=blankDrawing();p.title='A little paper orchestra';p.settings={...DEFAULT_SETTINGS,bpm:120,scale:'major',octave:2,range:3,beats:8,quantize:4};
+  const note=(voice,pitch,start,duration)=>p.strokes.push(...strokesFromEvents([{pitch,start,duration}],p.settings,voice));
+  [67,64,65,62,64,72,71,67].forEach((pitch,i)=>note('violin',pitch,i,.75));
+  [48,43,45,41].forEach((pitch,i)=>note('cello',pitch,i*2,1.75));
+  [60,64].forEach(pitch=>note('horn',pitch,0,1.5));[57,60].forEach(pitch=>note('horn',pitch,4,1.5));
+  [60,64,67,72,57,60,64,69].forEach((pitch,i)=>note('harp',pitch,i,.5));
+  note('oboe',64,1.5,.5);note('oboe',67,3.5,.5);note('clarinet',64,6,1.5);note('trumpet',72,7,.75);
+  [60,64,67].forEach(pitch=>note('strings',pitch,0,3.5));
   return p;
 }

@@ -1,3 +1,4 @@
+import {VOICE_COUNT} from './drawing-voices.mjs';
 export const MAX_IMAGE_BYTES=100000000;
 export const MAX_IMAGE_DATA_CHARS=48000000;
 export const MAX_PROJECT_IMAGE_CHARS=256000000;
@@ -38,7 +39,7 @@ export function sampleCodes(image){
 export function validateSamples(image){
   if(!Number.isInteger(image.sampleWidth)||image.sampleWidth<1||image.sampleWidth>1024||!Number.isInteger(image.sampleHeight)||image.sampleHeight<1||image.sampleHeight>512||!validBase64(image.samples,Math.ceil(MAX_SAMPLES*4/3)*4))return false;
   let codes;try{codes=sampleCodes(image);}catch{return false;}if(codes.length>MAX_SAMPLES)return false;
-  return codes.every(code=>(code>>>23)===0&&(code&1023)<image.sampleWidth&&((code>>>10)&511)<image.sampleHeight&&((code>>>19)&15)<9);
+  return codes.every(code=>(code>>>23)===0&&(code&1023)<image.sampleWidth&&((code>>>10)&511)<image.sampleHeight&&((code>>>19)&15)<VOICE_COUNT);
 }
 export const imageSampleCount=image=>image?.samples!==undefined?(image.samples.length*3/4-(image.samples.endsWith('==')?2:image.samples.endsWith('=')?1:0))/4:image?.points?.length||0;
 export function imageDimensions(bytes){

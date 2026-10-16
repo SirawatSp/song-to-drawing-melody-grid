@@ -6,7 +6,9 @@ A persistent, versioned visual reference studio for turning **note events into d
 
 **Draw and hear your own picture:** https://sirawatsp.github.io/song-to-drawing-melody-grid/paint.html
 
-Choose from nine instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, a WAV audio loop, or an MP4 video of the drawing with its sound. All drawing controls are available without an unlock. The nine sounds are original synthesized timbres.
+Choose from 16 instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, a WAV audio loop, or an MP4 video of the drawing with its sound. All drawing controls are available without an unlock. The sounds are original synthesized timbres. Choose **Orchestra** in the sound palette for violin, cello, oboe, clarinet, French horn, trumpet, harp, flute and strings. Tap ♪ to audition a voice, then draw in its color or select **Use my selected voice** when importing a plan. These are lightweight orchestral approximations, not sampled acoustic instruments.
+
+**Try an orchestra** adds an original eight-beat layered demo as a new section (or uses the initial empty sheet), so your existing drawings remain available. Undo restores the previous project. The Original 9 filter keeps the familiar palette accessible; existing voice IDs and color indices are unchanged.
 
 The grid editor's **Draw this melody** button sends its current note events to the sketchbook as a silent guide. **Make guide playable** creates separate colored strokes; source pitches outside the selected key/range are flagged, and timing approximated by Snap is reported. The existing melody source and recording-verification limits still apply.
 

@@ -1,4 +1,4 @@
-import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,strokesFromEvents,settingsFromGuide,gardenDrawing} from './drawing-model.mjs';
+import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,strokesFromEvents,settingsFromGuide,gardenDrawing,orchestraDrawing} from './drawing-model.mjs';
 import {DrawingPlayer,renderWav} from './drawing-audio.mjs';
 import {renderMp4} from './drawing-video.mjs';
 import {blankSequence,validateSequence,compileSequence,sequencePosition,assertPlayableSequence,moveSection,secondsSettings,MAX_SECTIONS} from './drawing-sequence.mjs';
@@ -151,6 +151,7 @@ canvas.addEventListener('pointerleave',()=>{$('hover-note').hidden=true;});
 function showHover(q){const b=bounds(),tag=$('hover-note');tag.hidden=false;tag.textContent=noteName(pitchAt(q[1],drawing.settings))+' · beat '+(q[0]*drawing.settings.beats).toFixed(1);tag.style.left=Math.min(paper.clientWidth-110,b.x+q[0]*b.w+12)+'px';tag.style.top=Math.max(3,b.y+q[1]*b.h-28)+'px';}
 function setTool(next){tool=next;$('pen-tool').setAttribute('aria-pressed',tool==='pen');$('eraser-tool').setAttribute('aria-pressed',tool==='erase');paper.classList.toggle('erase-mode',tool==='erase');}
 function selectVoice(id){selected=id;const v=VOICES.find(v=>v.id===id);document.documentElement.style.setProperty('--voice',v.color);$('voice-name').textContent=v.name;$('voice-hint').textContent=v.hint;for(const btn of $('palette').children)btn.setAttribute('aria-pressed',btn.dataset.voice===id);setTool('pen');}
+function filterVoices(){const family=$('voice-family').value;for(const btn of $('palette').children){const index=VOICES.findIndex(v=>v.id===btn.dataset.voice),v=VOICES[index];btn.hidden=family==='orchestra'?!v.orchestra:family==='original'?index>=9:false;}const selectedButton=$('palette').querySelector('[aria-pressed=true]');if(selectedButton?.hidden)selectVoice([...$('palette').children].find(btn=>!btn.hidden).dataset.voice);}
 function palette(){for(const v of VOICES){const btn=document.createElement('button');btn.className='swatch';btn.dataset.voice=v.id;btn.style.setProperty('--swatch',v.color);btn.setAttribute('aria-label',v.name+' · '+v.hint);btn.setAttribute('title',v.hint);btn.setAttribute('aria-pressed',v.id===selected);const dot=document.createElement('span');dot.className='color';const label=document.createElement('span');label.textContent=v.name;btn.append(dot,label);btn.onclick=()=>selectVoice(v.id);$('palette').append(btn);}}
 async function hydrateImage(){const request=++imageRequest;imageBitmap=null;if(drawing.image){const im=new Image();im.src=drawing.image.dataURL;await im.decode();if(request!==imageRequest)return;imageBitmap=im;}requestRender();}
 async function replace(p){stop();record(snapshot());drawing=validateDrawing(p);await hydrateImage();update({fields:true});}
@@ -261,6 +262,13 @@ function bind(){
   $('pen-tool').onclick=()=>setTool('pen');$('eraser-tool').onclick=()=>setTool('erase');$('undo-drawing').onclick=safe(undo);$('redo-drawing').onclick=safe(redo);
   $('grid-toggle').onclick=()=>{grid=!grid;$('grid-toggle').setAttribute('aria-pressed',grid);requestRender();};
   $('clear-drawing').onclick=safe(async()=>{const p=snapshot();p.strokes=[];p.image=null;await replace(p);say('Paper cleared. Undo brings your drawing back.');});
+  $('voice-family').onchange=filterVoices;
+  $('orchestra-demo').onclick=safe(async()=>{
+    if(project.sections.length>=MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
+    stop();remember(projectSnapshot());const empty=project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide,next=orchestraDrawing();
+    if(empty)project.sections[0]=next;else {project.sections.splice(project.active+1,0,next);project.active++;}
+    drawing=next;await hydrateImage();$('voice-family').value='orchestra';filterVoices();selectVoice('violin');update({fields:true});say('An original eight-beat paper orchestra. Press Play to hear the layers. The demo is a new section; Undo returns to your previous project.');
+  });
   $('demo').onclick=safe(async()=>{await replace(gardenDrawing());say('An original singing garden. Press Play, then add your own colors. Undo returns to your previous drawing.');});
   $('audition').onclick=safe(()=>player.preview(pitchesFor(drawing.settings)[Math.floor(pitchesFor(drawing.settings).length/2)],selected));
   $('paint-play').onclick=safe(async()=>{if(player.playing)stop();else await playEvents(compiled.events);});$('paint-stop').onclick=stop;
