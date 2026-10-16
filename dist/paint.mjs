@@ -8,7 +8,7 @@ import {noteName,validate as validateGuide} from './model.mjs';
 
 const $=id=>document.getElementById(id),canvas=$('drawing'),paper=$('paper');
 const history=[],future=[];
-let project=blankSequence(),sequencePlayback=null,playbackImages=[],playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve();
+let project=blankSequence(),sequencePlayback=null,playbackImages=[],playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve(),saveRevision=0;
 let drawing=blankDrawing(),selected='keys',tool='pen',grid=true,showGuide=true,active=null,beforeGesture=null;
 let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,previewURL=null,saveTimer=0,renderFrame=0;
 let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='';
@@ -41,11 +41,11 @@ function syncSection(){project.sections[project.active]=drawing;}
 function projectSnapshot(){syncSection();return structuredClone(project);}
 function remember(p){history.push(p);if(history.length>20)history.shift();future.length=0;}
 function record(before){const p=projectSnapshot();p.sections[p.active]=before;remember(p);}
-function persist(){clearTimeout(saveTimer);$('save-status').textContent='Saving on this device…';saveTimer=setTimeout(saveNow,180);}
-function saveNow(){
+function persist(){clearTimeout(saveTimer);const revision=++saveRevision;$('save-status').textContent='Saving on this device…';saveTimer=setTimeout(()=>saveNow(revision),180);}
+function saveNow(revision=saveRevision){
   clearTimeout(saveTimer);const value=projectSnapshot();
   saveQueue=saveQueue.catch(()=>{}).then(()=>saveDraft(value));
-  saveQueue.then(()=>{$('save-status').textContent='Saved on this device';},()=>{$('save-status').textContent='Download an editable sequence to save';say('This device could not save the sequence. Use “Save editable sequence” for a backup.',true);});
+  saveQueue.then(()=>{if(revision===saveRevision)$('save-status').textContent='Saved on this device';},()=>{if(revision===saveRevision){$('save-status').textContent='Download an editable sequence to save';say('This device could not save the sequence. Use “Save editable sequence” for a backup.',true);}});
 }
 function renderSections(){
   $('section-list').replaceChildren();let beats=0,seconds=0;
