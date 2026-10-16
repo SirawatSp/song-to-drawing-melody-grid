@@ -11,7 +11,7 @@ const history=[],future=[];
 let project=blankSequence(),sequencePlayback=null,playbackImages=[],playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve(),saveRevision=0;
 let drawing=blankDrawing(),selected='keys',tool='pen',grid=true,showGuide=true,active=null,beforeGesture=null;
 let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,previewURL=null,saveTimer=0,renderFrame=0;
-let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='';
+let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='',imageRequest=0;
 const player=new DrawingPlayer(progress=>{
   const head=$('playhead');head.hidden=progress===null;
   if(progress!==null){
@@ -148,7 +148,7 @@ function showHover(q){const b=bounds(),tag=$('hover-note');tag.hidden=false;tag.
 function setTool(next){tool=next;$('pen-tool').setAttribute('aria-pressed',tool==='pen');$('eraser-tool').setAttribute('aria-pressed',tool==='erase');paper.classList.toggle('erase-mode',tool==='erase');}
 function selectVoice(id){selected=id;const v=VOICES.find(v=>v.id===id);document.documentElement.style.setProperty('--voice',v.color);$('voice-name').textContent=v.name;$('voice-hint').textContent=v.hint;for(const btn of $('palette').children)btn.setAttribute('aria-pressed',btn.dataset.voice===id);setTool('pen');}
 function palette(){for(const v of VOICES){const btn=document.createElement('button');btn.className='swatch';btn.dataset.voice=v.id;btn.style.setProperty('--swatch',v.color);btn.setAttribute('aria-label',v.name+' · '+v.hint);btn.setAttribute('title',v.hint);btn.setAttribute('aria-pressed',v.id===selected);const dot=document.createElement('span');dot.className='color';const label=document.createElement('span');label.textContent=v.name;btn.append(dot,label);btn.onclick=()=>selectVoice(v.id);$('palette').append(btn);}}
-async function hydrateImage(){imageBitmap=null;if(drawing.image){const im=new Image();im.src=drawing.image.dataURL;await im.decode();imageBitmap=im;}requestRender();}
+async function hydrateImage(){const request=++imageRequest;imageBitmap=null;if(drawing.image){const im=new Image();im.src=drawing.image.dataURL;await im.decode();if(request!==imageRequest)return;imageBitmap=im;}requestRender();}
 async function replace(p){stop();record(snapshot());drawing=validateDrawing(p);await hydrateImage();update({fields:true});}
 async function undo(){if(!history.length)return;stop();future.push(projectSnapshot());project=history.pop();drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Undone.');}
 async function redo(){if(!future.length)return;stop();history.push(projectSnapshot());project=future.pop();drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Redone.');}
