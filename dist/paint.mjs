@@ -176,7 +176,7 @@ async function preparePending(file){
   $('apply-image').disabled=true;$('image-preview').removeAttribute('src');$('image-import-status').classList.remove('error');$('image-import-progress').hidden=false;
   if(!$('image-dialog').open)$('image-dialog').showModal();
   try{
-    const prepared=await imageImporter.prepare(file,currentPolicy($('image-quality').value),{signal:controller.signal,onProgress:importProgress});controller.signal.throwIfAborted();
+    const prepared=await imageImporter.prepare(file,currentPolicy($('image-quality').value),{signal:controller.signal,onProgress:(stage,value)=>{if(importController===controller&&!controller.signal.aborted)importProgress(stage,value);}});controller.signal.throwIfAborted();
     pendingImage=prepared;$('image-preview').src=prepared.thumbnail;$('image-import-status').textContent=`${prepared.info.sourceWidth}×${prepared.info.sourceHeight} source → ${prepared.info.width}×${prepared.info.height} retained · ${prepared.info.profile} quality`;
   }catch(e){
     if(!controller.signal.aborted){$('image-import-status').textContent=e.message;$('image-import-status').classList.add('error');say(e.message,true);}
@@ -193,7 +193,7 @@ async function imagePayload(prepared,mode,signal){
 async function readBatch(files){
   if(!files.length)return;
   if(files.length+project.sections.length-(project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide?1:0)>MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
-  await readImage(files[0]);if(importController?.signal.aborted)return;pendingBatch=files;$('image-dialog-title').textContent=`Import ${files.length} plans as sections.`;
+  await readImage(files[0]);if(pendingFile!==files[0]||importController?.signal.aborted)return;pendingBatch=files;$('image-dialog-title').textContent=`Import ${files.length} plans as sections.`;
 }
 async function applyImage(){
   if(!pendingImage||importBusy)return;
@@ -256,7 +256,7 @@ function bind(){
   $('sequence-meter').onchange=()=>{stop();remember(projectSnapshot());project.beatsPerBar=Number($('sequence-meter').value);update();};
   for(const [id,delta]of [['move-section-left',-1],['move-section-right',1]])$(id).onclick=safe(async()=>{stop();remember(projectSnapshot());moveSection(project,project.active,project.active+delta);drawing=project.sections[project.active];update();});
   $('remove-section').onclick=safe(async()=>{if(project.sections.length===1)return;stop();remember(projectSnapshot());project.sections.splice(project.active,1);project.active=Math.min(project.active,project.sections.length-1);drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Section removed. Undo restores it.');});
-  $('import-sections').onclick=()=>$('section-files').click();$('section-files').onchange=safe(async e=>{await readBatch([...e.target.files]);e.target.value='';});
+  $('import-sections').onclick=()=>$('section-files').click();$('section-files').onchange=safe(async e=>{const files=[...e.target.files];e.target.value='';await readBatch(files);});
 
   $('pen-tool').onclick=()=>setTool('pen');$('eraser-tool').onclick=()=>setTool('erase');$('undo-drawing').onclick=safe(undo);$('redo-drawing').onclick=safe(redo);
   $('grid-toggle').onclick=()=>{grid=!grid;$('grid-toggle').setAttribute('aria-pressed',grid);requestRender();};
@@ -284,8 +284,8 @@ function bind(){
   $('image-mode-toggle').onclick=()=>{stop();record(snapshot());drawing.image={...drawing.image,mode:drawing.image.mode==='sound'?'reference':'sound'};update();};
   $('remove-image').onclick=safe(async()=>{const p=snapshot();p.image=null;await replace(p);say('Image removed. Undo brings it back.');});
   $('image-quality').onchange=safe(async()=>{if(pendingFile&&!importBusy)await preparePending(pendingFile);});
-  $('image-dialog').addEventListener('close',()=>{importController?.abort();pendingImage=null;pendingBatch=[];pendingFile=null;for(const field of $('image-dialog').querySelectorAll('input,select'))field.disabled=false;});
-  $('open-image').onclick=()=>$('image-file').click();$('image-file').onchange=safe(async e=>{await readImage(e.target.files[0]);e.target.value='';});$('apply-image').onclick=safe(applyImage);
+  $('image-dialog').addEventListener('close',()=>{if($('image-dialog').open)return;importController?.abort();pendingImage=null;pendingBatch=[];pendingFile=null;for(const field of $('image-dialog').querySelectorAll('input,select'))field.disabled=false;});
+  $('open-image').onclick=()=>$('image-file').click();$('image-file').onchange=safe(async e=>{const file=e.target.files[0];e.target.value='';await readImage(file);});$('apply-image').onclick=safe(applyImage);
   $('save-project').onclick=()=>{download(new Blob([JSON.stringify(projectSnapshot())],{type:'application/json'}),fileName(project.title)+'.sequence.json');say('Editable sequence saved with all drawings, images, order and musical settings.');};
   $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>MAX_PROJECT_FILE_BYTES)throw Error('Choose a project smaller than 384 MB.');const next=validateSequence(JSON.parse(await file.text()));stop();remember(projectSnapshot());project=next;drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Editable project opened. Legacy drawings become a one-section sequence.');e.target.value='';});
   $('export-picture').onclick=safe(async()=>{renderPaper({exporting:true});try{const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('Picture export failed. Please try again.');download(blob,fileName()+'.png');say('Picture saved. Silent melody guides are left out of the exported drawing.');}finally{requestRender();}});
