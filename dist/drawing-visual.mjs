@@ -1,17 +1,13 @@
+import {createSectionImageCache} from './drawing-images.mjs';
+export {createSectionImageCache} from './drawing-images.mjs';
 import {VOICES,pitchesFor} from './drawing-model.mjs';
 import {noteName} from './model.mjs';
 import {sequencePosition} from './drawing-sequence.mjs';
 const KEYS=['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
 export const musicalLabel=s=>`${KEYS[s.key]} ${s.scale==='chromatic'?'chromatic':s.scale} · ${s.bpm} BPM`;
-export async function loadSectionImages(sections){
-  return Promise.all(sections.map(async drawing=>{
-    if(!drawing.image)return null;
-    const image=new Image();image.src=drawing.image.dataURL;await image.decode();return image;
-  }));
-}
 export function paintMarks(g,drawing,image,b,scale=1){
   g.save();g.beginPath();g.rect(b.x,b.y,b.w,b.h);g.clip();
-  if(image){g.globalAlpha=drawing.image?.mode==='reference'?.28:.93;g.drawImage(image,b.x,b.y,b.w,b.h);g.globalAlpha=1;}
+  if(image){g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.globalAlpha=drawing.image?.mode==='reference'?.28:.93;g.drawImage(image,b.x,b.y,b.w,b.h);g.globalAlpha=1;}
   g.lineCap='round';g.lineJoin='round';
   for(const stroke of drawing.strokes){
     g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===stroke.voice).color;g.lineWidth=stroke.size*scale;g.beginPath();
@@ -20,7 +16,7 @@ export function paintMarks(g,drawing,image,b,scale=1){
   }g.restore();
 }
 export async function createVideoPainter(sequence){
-  const images=await loadSectionImages(sequence.segments.map(s=>s.drawing));
+  const images=await createSectionImageCache(sequence.segments.map(s=>s.drawing));
   const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;
   const g=canvas.getContext('2d'),b={x:76,y:112,w:1160,h:474};
   function drawFrame(seconds){
@@ -30,7 +26,7 @@ export async function createVideoPainter(sequence){
     g.font='14px Verdana,sans-serif';g.fillStyle='#526a55';g.fillText(musicalLabel(s),b.x,69);
     g.textAlign='right';g.fillText(`Section ${segment.index+1}/${sequence.segments.length} · ${sequence.beatsPerBar}/4`,b.x+b.w,40);
     g.fillText(`Bar ${position.bar} · Beat ${position.beat.toFixed(1)}`,b.x+b.w,69);
-    paintMarks(g,drawing,images[segment.index],b,1.35);
+    paintMarks(g,drawing,images.step(segment.index),b,1.35);
     // Pitch lanes and beat/bar lines are visual only; never enter the compiler.
     g.save();g.font='11px Verdana,sans-serif';g.textBaseline='middle';
     notes.forEach((pitch,i)=>{
@@ -57,5 +53,5 @@ export async function createVideoPainter(sequence){
     g.fillStyle='#a4743a';g.fillRect(b.x,680,b.w*Math.max(0,Math.min(1,seconds/sequence.duration)),3);
     return position;
   }
-  drawFrame(0);return {canvas,drawFrame};
+  drawFrame(0);return {canvas,drawFrame,dispose:()=>images.dispose()};
 }

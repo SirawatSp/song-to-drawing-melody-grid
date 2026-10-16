@@ -1,31 +1,34 @@
-import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,pixelsToPoints,strokesFromEvents,settingsFromGuide,gardenDrawing} from './drawing-model.mjs';
+import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,strokesFromEvents,settingsFromGuide,gardenDrawing,orchestraDrawing} from './drawing-model.mjs';
 import {DrawingPlayer,renderWav} from './drawing-audio.mjs';
 import {renderMp4} from './drawing-video.mjs';
 import {blankSequence,validateSequence,compileSequence,sequencePosition,assertPlayableSequence,moveSection,secondsSettings,MAX_SECTIONS} from './drawing-sequence.mjs';
 import {loadDraft,saveDraft} from './drawing-storage.mjs';
-import {createVideoPainter,loadSectionImages,paintMarks,musicalLabel} from './drawing-visual.mjs';
+import {createVideoPainter,createSectionImageCache,paintMarks,musicalLabel} from './drawing-visual.mjs';
 import {noteName,validate as validateGuide} from './model.mjs';
+import {ImageImporter,currentPolicy} from './image-import.mjs';
+import {MAX_PROJECT_FILE_BYTES,MAX_PROJECT_IMAGE_CHARS,imageSampleCount,trimImageHistory} from './image-data.mjs';
 
 const $=id=>document.getElementById(id),canvas=$('drawing'),paper=$('paper');
 const history=[],future=[];
-let project=blankSequence(),sequencePlayback=null,playbackImages=[],playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve(),saveRevision=0;
+let project=blankSequence(),sequencePlayback=null,playbackImages=null,playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve(),saveRevision=0;
 let drawing=blankDrawing(),selected='keys',tool='pen',grid=true,showGuide=true,active=null,beforeGesture=null;
-let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,previewURL=null,saveTimer=0,renderFrame=0;
-let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='',imageRequest=0;
+let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,saveTimer=0,renderFrame=0;
+let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='',imageRequest=0,pendingFile=null,importController=null,importBusy=false;
+const imageImporter=new ImageImporter();
 const player=new DrawingPlayer(progress=>{
   const head=$('playhead');head.hidden=progress===null;
   if(progress!==null){
     const b=bounds();let local=progress;
     if(sequencePlayback){
       const position=sequencePosition(sequencePlayback,progress*sequencePlayback.duration);local=position.progress;
-      if(playbackIndex!==position.segment.index){playbackIndex=position.segment.index;requestRender();for(const [i,card]of [...$('section-list').children].entries())card.classList.toggle('is-playing',i===playbackIndex);}
+      if(playbackIndex!==position.segment.index){try{playbackImages.step(position.segment.index);}catch(e){stop();say(e.message,true);return;}playbackIndex=position.segment.index;requestRender();for(const [i,card]of [...$('section-list').children].entries())card.classList.toggle('is-playing',i===playbackIndex);}
       $('play-position').textContent=`Section ${playbackIndex+1} · bar ${position.bar} · beat ${position.beat.toFixed(1)}`;
       $('section-now').textContent=`Playing ${position.segment.drawing.title} · ${musicalLabel(position.segment.drawing.settings)}`;
     }else $('play-position').textContent=(progress*drawing.settings.beats).toFixed(1)+' / '+drawing.settings.beats+' beats';
     head.style.left=(b.x+local*b.w)+'px';
   }
 },()=>{
-  sequencePlayback=null;playbackImages=[];playbackIndex=-1;requestRender();
+  sequencePlayback=null;playbackImages?.dispose();playbackImages=null;playbackIndex=-1;requestRender();
   for(const card of $('section-list').children)card.classList.remove('is-playing');
   $('section-now').textContent='Each drawing keeps its own musical settings.';
   $('sequence-play').textContent='▶ Play sequence';
@@ -36,9 +39,10 @@ function say(text,error=false){$('paint-message').textContent=text;$('paint-mess
 const safe=fn=>async(...args)=>{try{await fn(...args);}catch(e){say(e.message||String(e),true);}};
 function bounds(){return{x:48,y:20,w:paper.clientWidth-68,h:paper.clientHeight-48};}
 function stop(){playIntent++;player.stop();$('playhead').hidden=true;$('play-position').textContent='0.0 / '+drawing.settings.beats+' beats';}
-function snapshot(){return structuredClone(drawing);}
+function cloneDrawing(value){const {image,...rest}=value;return {...structuredClone(rest),image};}
+function snapshot(){return cloneDrawing(drawing);}
 function syncSection(){project.sections[project.active]=drawing;}
-function projectSnapshot(){syncSection();return structuredClone(project);}
+function projectSnapshot(){syncSection();return {...project,sections:project.sections.map(cloneDrawing)};}
 function remember(p){history.push(p);if(history.length>20)history.shift();future.length=0;}
 function record(before){const p=projectSnapshot();p.sections[p.active]=before;remember(p);}
 function persist(){clearTimeout(saveTimer);const revision=++saveRevision;$('save-status').textContent='Saving on this device…';saveTimer=setTimeout(()=>saveNow(revision),180);}
@@ -51,7 +55,7 @@ function renderSections(){
   $('section-list').replaceChildren();let beats=0,seconds=0;
   project.sections.forEach((section,index)=>{
     const card=document.createElement('button');card.className='section-card';card.setAttribute('aria-pressed',index===project.active);card.setAttribute('aria-label',`Section ${index+1}: ${section.title}`);card.dataset.section=index;
-    if(section.image){const image=document.createElement('img');image.src=section.image.dataURL;image.alt='';card.append(image);}
+    if(section.image){const image=document.createElement('img');image.src=section.image.thumbnail||section.image.dataURL;image.loading='lazy';image.alt='';card.append(image);}
     else {const thumbnail=document.createElement('canvas');thumbnail.width=180;thumbnail.height=90;paintMarks(thumbnail.getContext('2d'),section,null,{x:4,y:4,w:172,h:82},.6);card.append(thumbnail);}
     const title=document.createElement('strong');title.textContent=`${index+1}. ${section.title}`;
     const detail=document.createElement('small'),first=Math.floor(beats/project.beatsPerBar)+1,last=Math.ceil((beats+section.settings.beats)/project.beatsPerBar);
@@ -69,7 +73,7 @@ async function playSequence(){
   if(player.playing){stop();return;}stop();const intent=playIntent,sequence=compileSequence(projectSnapshot());assertPlayableSequence(sequence);
   $('sequence-play').disabled=true;
   try{
-    await player.ready();const images=await loadSectionImages(sequence.segments.map(s=>s.drawing));if(playIntent!==intent)return;
+    await player.ready();const images=await createSectionImageCache(sequence.segments.map(s=>s.drawing));if(playIntent!==intent){images.dispose();return;}
     await player.play(sequence.events,secondsSettings(sequence),{loop:$('loop').checked});
     sequencePlayback=sequence;playbackImages=images;playbackIndex=-1;$('sequence-play').textContent='■ Stop sequence';$('paint-stop').disabled=false;
     say(sequence.dropped?'Playing the sequence. Some dense overlapping marks were limited to 12 simultaneous notes.':'Playing every section continuously in the arranged order.');
@@ -81,11 +85,11 @@ async function addSection({duplicate=false}={}){
   project.sections.splice(project.active+1,0,next);project.active++;drawing=next;await hydrateImage();update({fields:true});
 }
 function update({fields=false}={}){
-  syncSection();renderSections();compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
+  syncSection();trimImageHistory(project,history,future);renderSections();compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
   $('empty-hint').hidden=!!(drawing.strokes.length||drawing.image||drawing.guide);
   $('undo-drawing').disabled=!history.length;$('redo-drawing').disabled=!future.length;
   $('image-strip').hidden=!drawing.image;
-  if(drawing.image){$('image-status').textContent=drawing.image.mode==='sound'?'Image colors are playing · approximate musical interpretation':'Image is a silent tracing reference';$('image-mode-toggle').textContent=drawing.image.mode==='sound'?'Make image silent':'Make image sing';}
+  if(drawing.image){const info=drawing.image.info,detail=info?` · ${info.width}×${info.height} · ${imageSampleCount(drawing.image).toLocaleString()} ink anchors`:'';$('image-status').textContent=(drawing.image.mode==='sound'?'Image colors are playing · approximate musical interpretation':'Image is a silent tracing reference')+detail;$('image-mode-toggle').textContent=drawing.image.mode==='sound'?'Make image silent':'Make image sing';}
   $('guide-strip').hidden=!drawing.guide;
   if(drawing.guide){$('guide-title').textContent=drawing.guide.title;const missing=drawing.guide.events.some(e=>yForPitch(e.pitch,drawing.settings)===null);$('guide-status').textContent=missing?'Some guide pitches are outside this key/range. Adjust the paper to trace every note.':'Silent reference · recording timing unverified';}
   if(fields)for(const k of['bpm','key','scale','octave','range','beats','quantize'])$('paint-'+k).value=drawing.settings[k];
@@ -98,9 +102,9 @@ function renderPaper({exporting=false}={}){
   const dpr=window.devicePixelRatio||1,w=paper.clientWidth,h=paper.clientHeight;
   if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
   const g=canvas.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);g.fillStyle='#fffdf8';g.fillRect(0,0,w,h);
-  const displayed=sequencePlayback?.segments[playbackIndex]?.drawing||drawing,displayImage=sequencePlayback?playbackImages[playbackIndex]:imageBitmap;
+  const displayed=sequencePlayback?.segments[playbackIndex]?.drawing||drawing,displayImage=sequencePlayback?(playbackIndex>=0?playbackImages.get(playbackIndex):null):imageBitmap;
   const b=bounds(),s=displayed.settings,notes=pitchesFor(s),rowH=b.h/notes.length;
-  if(displayImage){g.save();g.globalAlpha=displayed.image?.mode==='reference'?.28:.93;g.drawImage(displayImage,b.x,b.y,b.w,b.h);g.restore();}
+  if(displayImage){g.save();g.imageSmoothingEnabled=true;g.imageSmoothingQuality='high';g.globalAlpha=displayed.image?.mode==='reference'?.28:.93;g.drawImage(displayImage,b.x,b.y,b.w,b.h);g.restore();}
   if(grid&&!exporting){
     g.save();g.font='9px Verdana,sans-serif';g.textBaseline='middle';
     notes.forEach((pitch,i)=>{
@@ -147,6 +151,7 @@ canvas.addEventListener('pointerleave',()=>{$('hover-note').hidden=true;});
 function showHover(q){const b=bounds(),tag=$('hover-note');tag.hidden=false;tag.textContent=noteName(pitchAt(q[1],drawing.settings))+' · beat '+(q[0]*drawing.settings.beats).toFixed(1);tag.style.left=Math.min(paper.clientWidth-110,b.x+q[0]*b.w+12)+'px';tag.style.top=Math.max(3,b.y+q[1]*b.h-28)+'px';}
 function setTool(next){tool=next;$('pen-tool').setAttribute('aria-pressed',tool==='pen');$('eraser-tool').setAttribute('aria-pressed',tool==='erase');paper.classList.toggle('erase-mode',tool==='erase');}
 function selectVoice(id){selected=id;const v=VOICES.find(v=>v.id===id);document.documentElement.style.setProperty('--voice',v.color);$('voice-name').textContent=v.name;$('voice-hint').textContent=v.hint;for(const btn of $('palette').children)btn.setAttribute('aria-pressed',btn.dataset.voice===id);setTool('pen');}
+function filterVoices(){const family=$('voice-family').value;for(const btn of $('palette').children){const index=VOICES.findIndex(v=>v.id===btn.dataset.voice),v=VOICES[index];btn.hidden=family==='orchestra'?!v.orchestra:family==='original'?index>=9:false;}const selectedButton=$('palette').querySelector('[aria-pressed=true]');if(selectedButton?.hidden)selectVoice([...$('palette').children].find(btn=>!btn.hidden).dataset.voice);}
 function palette(){for(const v of VOICES){const btn=document.createElement('button');btn.className='swatch';btn.dataset.voice=v.id;btn.style.setProperty('--swatch',v.color);btn.setAttribute('aria-label',v.name+' · '+v.hint);btn.setAttribute('title',v.hint);btn.setAttribute('aria-pressed',v.id===selected);const dot=document.createElement('span');dot.className='color';const label=document.createElement('span');label.textContent=v.name;btn.append(dot,label);btn.onclick=()=>selectVoice(v.id);$('palette').append(btn);}}
 async function hydrateImage(){const request=++imageRequest;imageBitmap=null;if(drawing.image){const im=new Image();im.src=drawing.image.dataURL;await im.decode();if(request!==imageRequest)return;imageBitmap=im;}requestRender();}
 async function replace(p){stop();record(snapshot());drawing=validateDrawing(p);await hydrateImage();update({fields:true});}
@@ -166,43 +171,62 @@ async function addGuide(raw){
 function SCALE_VALID(s){return[2,3,4,5].includes(s.octave);}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);}
 const fileName=(title=drawing.title)=>title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'singing-drawing';
+function importProgress(stage,value){$('image-import-status').textContent=stage+'…';$('image-import-progress').value=value;}
+async function preparePending(file){
+  importController?.abort();const controller=new AbortController();importController=controller;pendingFile=file;pendingImage=null;
+  $('apply-image').disabled=true;$('image-preview').removeAttribute('src');$('image-import-status').classList.remove('error');$('image-import-progress').hidden=false;
+  if(!$('image-dialog').open)$('image-dialog').showModal();
+  try{
+    const prepared=await imageImporter.prepare(file,currentPolicy($('image-quality').value),{signal:controller.signal,onProgress:(stage,value)=>{if(importController===controller&&!controller.signal.aborted)importProgress(stage,value);}});controller.signal.throwIfAborted();
+    pendingImage=prepared;$('image-preview').src=prepared.thumbnail;$('image-import-status').textContent=`${prepared.info.sourceWidth}×${prepared.info.sourceHeight} source → ${prepared.info.width}×${prepared.info.height} retained · ${prepared.info.profile} quality`;
+  }catch(e){
+    if(!controller.signal.aborted){$('image-import-status').textContent=e.message;$('image-import-status').classList.add('error');say(e.message,true);}
+  }finally{if(importController===controller){$('image-import-progress').hidden=true;$('apply-image').disabled=!pendingImage;}}
+}
 async function readImage(file){
-  if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a PNG, JPEG or WebP drawing.');if(file.size>10000000)throw Error('Choose an image smaller than 10 MB.');
-  if(previewURL)URL.revokeObjectURL(previewURL);previewURL=URL.createObjectURL(file);const im=new Image();im.src=previewURL;await im.decode();
-  const c=document.createElement('canvas');c.width=1024;c.height=512;const g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);const scale=Math.min(c.width/im.width,c.height/im.height),w=im.width*scale,h=im.height*scale;g.drawImage(im,(c.width-w)/2,(c.height-h)/2,w,h);
-  pendingBatch=[];pendingTitle=file.name.replace(/\.[^.]+$/,'');$('image-dialog-title').textContent='Give this image a voice.';
-  pendingImage=c;$('image-preview').src=c.toDataURL('image/png');$('image-dialog').showModal();
+  if(!file)return;stop();pendingBatch=[];pendingTitle=file.name.replace(/\.[^.]+$/,'');$('image-dialog-title').textContent='Give this image a voice.';await preparePending(file);
 }
-function imagePayload(source,mode){
-  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(source,0,0,256,128);
+async function imagePayload(prepared,mode,signal){
   const voice=mode==='one'?VOICES.findIndex(v=>v.id===selected):null;
-  return {dataURL:source.toDataURL('image/png'),points:pixelsToPoints(g.getImageData(0,0,256,128).data,256,128,{voice,sensitivity:Number($('image-sensitivity').value)}),mode:mode==='reference'?'reference':'sound'};
-}
-async function canvasFromFile(file){
-  if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>10000000)throw Error('Choose PNG, JPG or WebP files under 10 MB each.');
-  const url=URL.createObjectURL(file),image=new Image();
-  try{image.src=url;await image.decode();const c=document.createElement('canvas');c.width=1024;c.height=512;const scale=Math.min(1024/image.width,512/image.height),w=image.width*scale,h=image.height*scale;c.getContext('2d').drawImage(image,(1024-w)/2,(512-h)/2,w,h);return c;}finally{URL.revokeObjectURL(url);}
+  const sound=await imageImporter.analyze(prepared,{voice,sensitivity:Number($('image-sensitivity').value)},{signal,onProgress:importProgress});
+  return {dataURL:prepared.dataURL,thumbnail:prepared.thumbnail,info:prepared.info,points:[],samples:sound.samples,sampleWidth:sound.sampleWidth,sampleHeight:sound.sampleHeight,mode:mode==='reference'?'reference':'sound'};
 }
 async function readBatch(files){
   if(!files.length)return;
   if(files.length+project.sections.length-(project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide?1:0)>MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
-  await readImage(files[0]);pendingBatch=files;$('image-dialog-title').textContent=`Import ${files.length} plans as sections.`;
+  await readImage(files[0]);if(pendingFile!==files[0]||importController?.signal.aborted)return;pendingBatch=files;$('image-dialog-title').textContent=`Import ${files.length} plans as sections.`;
 }
 async function applyImage(){
-  if(!pendingImage)return;const mode=document.querySelector('input[name="image-treatment"]:checked').value,button=$('apply-image');button.disabled=true;
+  if(!pendingImage||importBusy)return;
+  const controller=importController,signal=controller.signal,mode=document.querySelector('input[name="image-treatment"]:checked').value,button=$('apply-image'),policy=currentPolicy($('image-quality').value),files=[...pendingBatch];
+  importBusy=true;button.disabled=true;$('image-import-progress').hidden=false;$('image-import-status').classList.remove('error');
+  for(const field of $('image-dialog').querySelectorAll('input,select'))field.disabled=true;
   try{
-    if(pendingBatch.length){
-      const sections=[];for(const file of pendingBatch){const next=blankDrawing();next.settings={...drawing.settings};next.title=file.name.replace(/\.[^.]+$/,'');next.image=imagePayload(await canvasFromFile(file),mode);sections.push(validateDrawing(next));}
-      const next=projectSnapshot(),empty=next.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide;
-      if(empty)next.sections=[];const first=next.sections.length;next.sections.push(...sections);next.active=first;const checked=validateSequence(next);
-      stop();remember(projectSnapshot());project=checked;drawing=project.sections[project.active];await hydrateImage();update({fields:true});
-      say(`${sections.length} drawings added as ordered sections. Use the arrows to arrange them, then Play sequence.`);
+    if(files.length){
+      const sections=[],empty=project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide;
+      let stored=empty?0:project.sections.reduce((sum,section)=>sum+(section.image?.dataURL.length||0),0);
+      for(const [index,file]of files.entries()){
+        signal.throwIfAborted();$('image-dialog-title').textContent=`Importing plan ${index+1} of ${files.length}`;
+        const prepared=index===0?pendingImage:await imageImporter.prepare(file,policy,{signal,onProgress:importProgress});
+        const next=blankDrawing();next.version=2;next.settings={...drawing.settings};next.title=file.name.replace(/\.[^.]+$/,'');next.image=await imagePayload(prepared,mode,signal);stored+=next.image.dataURL.length;
+        if(stored>MAX_PROJECT_IMAGE_CHARS)throw Error('This batch would exceed the 256 MB project image budget. Import fewer plans or choose Balanced quality.');
+        sections.push(next);
+      }
+      signal.throwIfAborted();const next=projectSnapshot();if(empty)next.sections=[];const first=next.sections.length;next.sections.push(...sections);next.active=first;const checked=validateSequence(next);
+      const image=new Image();image.src=checked.sections[checked.active].image.dataURL;await image.decode();signal.throwIfAborted();
+      stop();remember(projectSnapshot());project=checked;drawing=project.sections[project.active];imageRequest++;imageBitmap=image;update({fields:true});say(`${sections.length} high-quality drawings added. Arrange them and Play sequence.`);
     }else{
-      const next=snapshot();next.image=imagePayload(pendingImage,mode);if(next.title==='My singing drawing')next.title=pendingTitle;
-      await replace(validateDrawing(next));say(mode==='reference'?'Image added as a silent reference.':'Image added. Press Play drawing or Play sequence. Pixel interpretation is approximate.');
+      const next=snapshot();next.version=2;next.image=await imagePayload(pendingImage,mode,signal);signal.throwIfAborted();if(next.title==='My singing drawing')next.title=pendingTitle;
+      const total=project.sections.reduce((sum,section,index)=>sum+(index===project.active?next.image.dataURL.length:section.image?.dataURL.length||0),0);if(total>MAX_PROJECT_IMAGE_CHARS)throw Error('The project image budget is 256 MB. Use Balanced quality or a smaller sequence.');
+      const checked=validateDrawing(next),image=new Image();image.src=checked.image.dataURL;await image.decode();signal.throwIfAborted();
+      stop();record(snapshot());drawing=checked;imageRequest++;imageBitmap=image;update({fields:true});say(mode==='reference'?'High-quality image added as a silent reference.':'Image added with finer line detection. Pixel interpretation is approximate; dense plans can add many notes.');
     }
-    $('image-dialog').close();pendingImage=null;pendingBatch=[];
-  }finally{button.disabled=false;}
+    $('image-dialog').close();
+  }catch(e){
+    if(!signal.aborted){$('image-import-status').textContent=e.message;$('image-import-status').classList.add('error');say(e.message,true);}
+  }finally{
+    importBusy=false;if(importController===controller){for(const field of $('image-dialog').querySelectorAll('input,select'))field.disabled=false;button.disabled=!pendingImage;$('image-import-progress').hidden=true;}
+  }
 }
 async function exportVideo(){
   if(videoExport)return;
@@ -233,11 +257,18 @@ function bind(){
   $('sequence-meter').onchange=()=>{stop();remember(projectSnapshot());project.beatsPerBar=Number($('sequence-meter').value);update();};
   for(const [id,delta]of [['move-section-left',-1],['move-section-right',1]])$(id).onclick=safe(async()=>{stop();remember(projectSnapshot());moveSection(project,project.active,project.active+delta);drawing=project.sections[project.active];update();});
   $('remove-section').onclick=safe(async()=>{if(project.sections.length===1)return;stop();remember(projectSnapshot());project.sections.splice(project.active,1);project.active=Math.min(project.active,project.sections.length-1);drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Section removed. Undo restores it.');});
-  $('import-sections').onclick=()=>$('section-files').click();$('section-files').onchange=safe(async e=>{await readBatch([...e.target.files]);e.target.value='';});
+  $('import-sections').onclick=()=>$('section-files').click();$('section-files').onchange=safe(async e=>{const files=[...e.target.files];e.target.value='';await readBatch(files);});
 
   $('pen-tool').onclick=()=>setTool('pen');$('eraser-tool').onclick=()=>setTool('erase');$('undo-drawing').onclick=safe(undo);$('redo-drawing').onclick=safe(redo);
   $('grid-toggle').onclick=()=>{grid=!grid;$('grid-toggle').setAttribute('aria-pressed',grid);requestRender();};
   $('clear-drawing').onclick=safe(async()=>{const p=snapshot();p.strokes=[];p.image=null;await replace(p);say('Paper cleared. Undo brings your drawing back.');});
+  $('voice-family').onchange=filterVoices;
+  $('orchestra-demo').onclick=safe(async()=>{
+    if(project.sections.length>=MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
+    stop();remember(projectSnapshot());const empty=project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide,next=orchestraDrawing();
+    if(empty)project.sections[0]=next;else {project.sections.splice(project.active+1,0,next);project.active++;}
+    drawing=next;await hydrateImage();$('voice-family').value='orchestra';filterVoices();selectVoice('violin');update({fields:true});say('An original eight-beat paper orchestra. Press Play to hear the layers. The demo is a new section; Undo returns to your previous project.');
+  });
   $('demo').onclick=safe(async()=>{await replace(gardenDrawing());say('An original singing garden. Press Play, then add your own colors. Undo returns to your previous drawing.');});
   $('audition').onclick=safe(()=>player.preview(pitchesFor(drawing.settings)[Math.floor(pitchesFor(drawing.settings).length/2)],selected));
   $('paint-play').onclick=safe(async()=>{if(player.playing)stop();else await playEvents(compiled.events);});$('paint-stop').onclick=stop;
@@ -258,11 +289,13 @@ function bind(){
     record(snapshot());stop();drawing.strokes.push(...newStrokes);update();say('Guide notes added as '+VOICES.find(v=>v.id===selected).name+' strokes. '+(approx?'Timing was approximated to the selected Snap cells. ':'Written beats fit the selected Snap cells. ')+'Recording timing remains unverified.');
   });
   $('remove-guide').onclick=()=>{record(snapshot());drawing.guide=null;update();};
-  $('image-mode-toggle').onclick=()=>{stop();record(snapshot());drawing.image.mode=drawing.image.mode==='sound'?'reference':'sound';update();};
+  $('image-mode-toggle').onclick=()=>{stop();record(snapshot());drawing.image={...drawing.image,mode:drawing.image.mode==='sound'?'reference':'sound'};update();};
   $('remove-image').onclick=safe(async()=>{const p=snapshot();p.image=null;await replace(p);say('Image removed. Undo brings it back.');});
-  $('open-image').onclick=()=>$('image-file').click();$('image-file').onchange=safe(async e=>{await readImage(e.target.files[0]);e.target.value='';});$('apply-image').onclick=safe(applyImage);
+  $('image-quality').onchange=safe(async()=>{if(pendingFile&&!importBusy)await preparePending(pendingFile);});
+  $('image-dialog').addEventListener('close',()=>{if($('image-dialog').open)return;importController?.abort();pendingImage=null;pendingBatch=[];pendingFile=null;for(const field of $('image-dialog').querySelectorAll('input,select'))field.disabled=false;});
+  $('open-image').onclick=()=>$('image-file').click();$('image-file').onchange=safe(async e=>{const file=e.target.files[0];e.target.value='';await readImage(file);});$('apply-image').onclick=safe(applyImage);
   $('save-project').onclick=()=>{download(new Blob([JSON.stringify(projectSnapshot())],{type:'application/json'}),fileName(project.title)+'.sequence.json');say('Editable sequence saved with all drawings, images, order and musical settings.');};
-  $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>120000000)throw Error('Choose a project smaller than 120 MB.');const next=validateSequence(JSON.parse(await file.text()));stop();remember(projectSnapshot());project=next;drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Editable project opened. Legacy drawings become a one-section sequence.');e.target.value='';});
+  $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>MAX_PROJECT_FILE_BYTES)throw Error('Choose a project smaller than 384 MB.');const next=validateSequence(JSON.parse(await file.text()));stop();remember(projectSnapshot());project=next;drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Editable project opened. Legacy drawings become a one-section sequence.');e.target.value='';});
   $('export-picture').onclick=safe(async()=>{renderPaper({exporting:true});try{const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('Picture export failed. Please try again.');download(blob,fileName()+'.png');say('Picture saved. Silent melody guides are left out of the exported drawing.');}finally{requestRender();}});
   $('export-wav').onclick=safe(async()=>{
     const sequence=exportSequence();assertPlayableSequence(sequence);const btn=$('export-wav');btn.disabled=true;btn.textContent='Rendering audio…';
@@ -279,7 +312,7 @@ function bind(){
     else if(e.code==='Space'){e.preventDefault();if(player.playing)stop();else await playEvents(compiled.events);}
     else if(e.key.toLowerCase()==='p')setTool('pen');else if(e.key.toLowerCase()==='e')setTool('erase');
   }));
-  window.addEventListener('pagehide',()=>{stop();videoExport?.abort();saveNow();});
+  window.addEventListener('pagehide',()=>{stop();videoExport?.abort();importController?.abort();saveNow();});
   document.addEventListener('visibilitychange',()=>{if(document.hidden){stop();saveNow();}});
   new ResizeObserver(requestRender).observe(paper);
 }

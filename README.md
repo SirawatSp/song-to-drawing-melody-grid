@@ -6,7 +6,9 @@ A persistent, versioned visual reference studio for turning **note events into d
 
 **Draw and hear your own picture:** https://sirawatsp.github.io/song-to-drawing-melody-grid/paint.html
 
-Choose from nine instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, a WAV audio loop, or an MP4 video of the drawing with its sound. All drawing controls are available without an unlock. The nine sounds are original synthesized timbres.
+Choose from 16 instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, a WAV audio loop, or an MP4 video of the drawing with its sound. All drawing controls are available without an unlock. The sounds are original synthesized timbres. Choose **Orchestra** in the sound palette for violin, cello, oboe, clarinet, French horn, trumpet, harp, flute and strings. Tap ♪ to audition a voice, then draw in its color or select **Use my selected voice** when importing a plan. These are lightweight orchestral approximations, not sampled acoustic instruments.
+
+**Try an orchestra** adds an original eight-beat layered demo as a new section (or uses the initial empty sheet), so your existing drawings remain available. Undo restores the previous project. The Original 9 filter keeps the familiar palette accessible; existing voice IDs and color indices are unchanged.
 
 The grid editor's **Draw this melody** button sends its current note events to the sketchbook as a silent guide. **Make guide playable** creates separate colored strokes; source pitches outside the selected key/range are flagged, and timing approximated by Snap is reported. The existing melody source and recording-verification limits still apply.
 
@@ -20,7 +22,9 @@ Use **Import plans as sections** to import several PNG/JPG/WebP drawings at once
 
 **Play drawing** auditions the selected section. **Play sequence** plays every section continuously and switches the visible drawing at each boundary. Loop repeats the whole sequence. Empty or silent sections keep their full duration as rests. Bar grouping can be 3/4, 4/4 or 6/4; this groups quarter-note beats without changing pitches or note times. A section may span multiple bars or finish partway through a bar.
 
-Projects support up to **64 sections**, **100 MB of embedded image data**, and **10 minutes / 12,000 notes** per playback/export, with at most 1,500 notes in any section. Image input is limited to 10 MB per file. Dense pictures remain approximate pixel interpretations, with up to 12 simultaneous notes.
+Projects support up to **64 sections**, **256 MB of embedded image data**, and **10 minutes / 12,000 notes** per playback/export, with at most 1,500 notes in any section. Import PNG/JPEG/WebP files up to **100 MB each**. **Auto** keeps up to 4096×2048 pixels on larger devices and 2048×1024 on phones or lower-memory devices; choose **High detail** or **Balanced** in the import dialog. Fine lines are preserved in the sound map, and progress/cancel controls keep large imports manageable. Dense pictures remain approximate pixel interpretations, with up to 12 simultaneous notes. More image detail does not establish a correct melody.
+
+Imports have a decoded-source safety budget of 80 megapixels (32 on phones/lower-memory devices), with no side above 32,768 pixels. Retained PNG data is capped at 48 million characters per image; a noisy image may need Balanced quality. Saved-project input is capped at 384 MB. MP4 output remains 1280×720.
 
 **Save editable sequence** stores all sections, embedded images, order and musical settings in one JSON file. **Open saved project** accepts both sequences and older single-drawing JSON files. Autosave uses IndexedDB on this device (with a small local-storage fallback); older local drafts migrate without deleting their original copy. This is not automatic cloud/account sync. Export JSON for cross-device work and backups.
 

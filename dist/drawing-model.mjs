@@ -1,16 +1,8 @@
+import {validImageURL,validateSamples,sampleCodes} from './image-data.mjs';
 // Original drawing-to-notes engine. Coordinates are normalized so resizing
 // changes the paper, not the music. One separate stroke is one separate voice.
-export const VOICES = [
-  {id:'keys', name:'Keys', color:'#1D9E75', hint:'Soft piano-like notes'},
-  {id:'pluck', name:'Pluck', color:'#D85A30', hint:'A bright plucked string'},
-  {id:'bell', name:'Bell', color:'#7F77DD', hint:'Round, ringing bells'},
-  {id:'marimba', name:'Marimba', color:'#EF9F27', hint:'Warm wooden taps'},
-  {id:'flute', name:'Flute', color:'#3E5EC6', hint:'A gentle, airy tone'},
-  {id:'strings', name:'Strings', color:'#DE7BAE', hint:'Slow, soft bowed tones'},
-  {id:'chime', name:'Chime', color:'#85BEE8', hint:'Light, glassy ringing'},
-  {id:'bass', name:'Bass', color:'#33312B', hint:'A rounded, mellow tone'},
-  {id:'8bit', name:'8-bit', color:'#F4BE82', hint:'A little video-game voice'}
-];
+import {VOICES} from './drawing-voices.mjs';
+export {VOICES} from './drawing-voices.mjs';
 export const SCALE_INTERVALS = {
   pentatonic:[0,2,4,7,9], major:[0,2,4,5,7,9,11],
   minor:[0,2,3,5,7,8,10], chromatic:[0,1,2,3,4,5,6,7,8,9,10,11]
@@ -34,7 +26,7 @@ export function yForPitch(pitch,s) {
   return i<0?null:1-(i+.5)/notes.length;
 }
 export function validateDrawing(raw) {
-  if(!raw||raw.format!=='singing-sketchbook'||raw.version!==1)throw Error('Choose a Singing Sketchbook project JSON.');
+  if(!raw||raw.format!=='singing-sketchbook'||![1,2].includes(raw.version))throw Error('Choose a Singing Sketchbook project JSON.');
   const p=structuredClone(raw),s=p.settings;
   if(!s||!Number.isFinite(s.bpm)||s.bpm<20||s.bpm>240||!Number.isInteger(s.key)||s.key<0||s.key>11||!SCALE_INTERVALS[s.scale]||![2,3,4,5].includes(s.octave)||![1,2,3].includes(s.range)||![3,4,6,8,12,16,24,32].includes(s.beats)||![1,2,3,4,6,8].includes(s.quantize))throw Error('The project has unsupported musical settings.');
   p.title=String(p.title||'My singing drawing').slice(0,120);
@@ -48,8 +40,20 @@ export function validateDrawing(raw) {
   if(count>100000)throw Error('This drawing has too many points. Save it in smaller sections.');
   if(p.image){
     const im=p.image;
-    if(typeof im.dataURL!=='string'||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(im.dataURL)||im.dataURL.length>4000000||!['sound','reference'].includes(im.mode)||!Array.isArray(im.points)||im.points.length>32768||!im.points.every(q=>pointOK(q)&&Number.isInteger(q[2])&&q[2]>=0&&q[2]<VOICES.length))throw Error('The project image is invalid or too large.');
-    p.image={dataURL:im.dataURL,mode:im.mode,points:im.points.map(q=>[q[0],q[1],q[2]])};
+    if(!validImageURL(im.dataURL)||!['sound','reference'].includes(im.mode))throw Error('The project image is invalid or exceeds 48 MB of stored image data.');
+    if(im.samples!==undefined){
+      if(p.version!==2||!validateSamples(im))throw Error('The project contains an invalid compact sound map.');
+      p.image={dataURL:im.dataURL,mode:im.mode,points:[],samples:im.samples,sampleWidth:im.sampleWidth,sampleHeight:im.sampleHeight};
+    }else{
+      if(!Array.isArray(im.points)||im.points.length>32768||!im.points.every(q=>pointOK(q)&&Number.isInteger(q[2])&&q[2]>=0&&q[2]<VOICES.length))throw Error('The project contains an invalid image sound map.');
+      p.image={dataURL:im.dataURL,mode:im.mode,points:im.points.map(q=>[q[0],q[1],q[2]])};
+    }
+    if(im.thumbnail!==undefined){if(!validImageURL(im.thumbnail)||im.thumbnail.length>1000000)throw Error('The image thumbnail is invalid.');p.image.thumbnail=im.thumbnail;}
+    if(im.info!==undefined){
+      const info=im.info;
+      if(!info||!['balanced','detailed'].includes(info.profile)||!['width','height','sourceWidth','sourceHeight','fileBytes'].every(k=>Number.isInteger(info[k])&&info[k]>0)||info.width>4096||info.height>2048||info.sourceWidth>32768||info.sourceHeight>32768||info.fileBytes>100000000)throw Error('The image size information is invalid.');
+      p.image.info={width:info.width,height:info.height,sourceWidth:info.sourceWidth,sourceHeight:info.sourceHeight,fileBytes:info.fileBytes,profile:info.profile};
+    }
   }
   if(p.guide){
     if(!Array.isArray(p.guide.events)||p.guide.events.length>500||!p.guide.events.every(e=>Number.isInteger(e.pitch)&&e.pitch>=0&&e.pitch<=127&&Number.isFinite(e.start)&&e.start>=0&&Number.isFinite(e.duration)&&e.duration>0&&e.start+e.duration<=s.beats+1e-7))throw Error('The melody guide contains invalid notes.');
@@ -57,26 +61,34 @@ export function validateDrawing(raw) {
   }
   return p;
 }
-function mark(cells,x,y,s,weight=1) {
-  const step=Math.min(cells.length-1,Math.floor(Math.max(0,x)*cells.length)),pitch=pitchAt(y,s);
+function mark(cells,x,y,s,weight=1,notes=pitchesFor(s)) {
+  const step=Math.min(cells.length-1,Math.floor(Math.max(0,x)*cells.length)),pitch=notes[Math.min(notes.length-1,Math.max(0,Math.floor((1-y)*notes.length)))];
   cells[step].set(pitch,(cells[step].get(pitch)||0)+weight);
 }
 function strokeCells(st,s) {
   const cells=Array.from({length:s.beats*s.quantize},()=>new Map());
-  mark(cells,...st.points[0],s);
-  const lanes=pitchesFor(s).length;
+  const notes=pitchesFor(s),lanes=notes.length;
+  mark(cells,...st.points[0],s,1,notes);
   for(let i=1;i<st.points.length;i++){
     const a=st.points[i-1],b=st.points[i];
     const n=Math.max(1,Math.ceil(Math.abs(b[0]-a[0])*cells.length*2),Math.ceil(Math.abs(b[1]-a[1])*lanes*2));
-    for(let k=1;k<=n;k++)mark(cells,a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n,s);
+    for(let k=1;k<=n;k++)mark(cells,a[0]+(b[0]-a[0])*k/n,a[1]+(b[1]-a[1])*k/n,s,1,notes);
   }
   return cells;
 }
+const imageCellCache=new WeakMap();
 export function compileDrawing(p) {
   const s=p.settings,steps=s.beats*s.quantize,parts=p.strokes.map((st,i)=>({id:'stroke'+i,voice:st.voice,cells:strokeCells(st,s)}));
   if(p.image?.mode==='sound'){
-    const imageParts=VOICES.map((v,i)=>({id:'image'+i,voice:v.id,cells:Array.from({length:steps},()=>new Map())}));
-    for(const[x,y,vi]of p.image.points)mark(imageParts[vi].cells,x,y,s);
+    const signature=[s.key,s.scale,s.octave,s.range,s.beats,s.quantize].join(':'),cached=imageCellCache.get(p.image);
+    let imageParts=cached?.signature===signature?cached.parts:null;
+    if(!imageParts){
+      const notes=pitchesFor(s);imageParts=VOICES.map((v,i)=>({id:'image'+i,voice:v.id,cells:Array.from({length:steps},()=>new Map())}));
+      if(p.image.samples!==undefined){
+        for(const code of sampleCodes(p.image))mark(imageParts[(code>>>19)&15].cells,((code&1023)+.5)/p.image.sampleWidth,(((code>>>10)&511)+.5)/p.image.sampleHeight,s,1,notes);
+      }else for(const[x,y,vi]of p.image.points)mark(imageParts[vi].cells,x,y,s,1,notes);
+      imageCellCache.set(p.image,{signature,parts:imageParts});
+    }
     parts.push(...imageParts);
   }
   const active=new Map(),events=[];let dropped=0,peak=0;
@@ -92,10 +104,11 @@ export function compileDrawing(p) {
   events.sort((a,b)=>a.start-b.start||a.pitch-b.pitch);
   return {events,dropped,peak};
 }
+const PALETTE_RGB=VOICES.map(v=>[1,3,5].map(at=>parseInt(v.color.slice(at,at+2),16)));
 export function nearestVoice(r,g,b) {
   let best=0,dist=Infinity;
   for(let i=0;i<VOICES.length;i++){
-    const h=VOICES[i].color,rr=parseInt(h.slice(1,3),16),gg=parseInt(h.slice(3,5),16),bb=parseInt(h.slice(5,7),16);
+    const [rr,gg,bb]=PALETTE_RGB[i];
     const d=(r-rr)**2+(g-gg)**2+(b-bb)**2;
     if(d<dist){dist=d;best=i;}
   }
@@ -142,5 +155,18 @@ export function gardenDrawing() {
     stroke('marimba',[[cx-.006,cy],[cx+.006,cy]],12);
   }
   for(const[x,y]of[[.08,.14],[.36,.1],[.65,.12],[.93,.19]]){stroke('bell',[[x-.012,y],[x+.012,y]],5);stroke('chime',[[x,y-.025],[x,y+.025]],5);}
+  return p;
+}
+
+// An original eight-beat phrase, unrelated to the sourced melody study.
+export function orchestraDrawing(){
+  const p=blankDrawing();p.title='A little paper orchestra';p.settings={...DEFAULT_SETTINGS,bpm:120,scale:'major',octave:2,range:3,beats:8,quantize:4};
+  const note=(voice,pitch,start,duration)=>p.strokes.push(...strokesFromEvents([{pitch,start,duration}],p.settings,voice));
+  [67,64,65,62,64,72,71,67].forEach((pitch,i)=>note('violin',pitch,i,.75));
+  [48,43,45,41].forEach((pitch,i)=>note('cello',pitch,i*2,1.75));
+  [60,64].forEach(pitch=>note('horn',pitch,0,1.5));[57,60].forEach(pitch=>note('horn',pitch,4,1.5));
+  [60,64,67,72,57,60,64,69].forEach((pitch,i)=>note('harp',pitch,i,.5));
+  note('oboe',64,1.5,.5);note('oboe',67,3.5,.5);note('clarinet',64,6,1.5);note('trumpet',72,7,.75);
+  [60,64,67].forEach(pitch=>note('strings',pitch,0,3.5));
   return p;
 }
