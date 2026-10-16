@@ -1,30 +1,87 @@
 import {VOICES,blankDrawing,pitchesFor,pitchAt,yForPitch,validateDrawing,compileDrawing,pixelsToPoints,strokesFromEvents,settingsFromGuide,gardenDrawing} from './drawing-model.mjs';
 import {DrawingPlayer,renderWav} from './drawing-audio.mjs';
 import {renderMp4} from './drawing-video.mjs';
+import {blankSequence,validateSequence,compileSequence,sequencePosition,assertPlayableSequence,moveSection,secondsSettings,MAX_SECTIONS} from './drawing-sequence.mjs';
+import {loadDraft,saveDraft} from './drawing-storage.mjs';
+import {createVideoPainter,loadSectionImages,paintMarks,musicalLabel} from './drawing-visual.mjs';
 import {noteName,validate as validateGuide} from './model.mjs';
 
 const $=id=>document.getElementById(id),canvas=$('drawing'),paper=$('paper');
-const STORAGE='singing-sketchbook-v1',history=[],future=[];
+const history=[],future=[];
+let project=blankSequence(),sequencePlayback=null,playbackImages=[],playbackIndex=-1,playIntent=0,saveQueue=Promise.resolve();
 let drawing=blankDrawing(),selected='keys',tool='pen',grid=true,showGuide=true,active=null,beforeGesture=null;
 let compiled={events:[],dropped:0},imageBitmap=null,pendingImage=null,previewURL=null,saveTimer=0,renderFrame=0;
-let videoExport=null,videoURL=null;
+let videoExport=null,videoURL=null,pendingBatch=[],pendingTitle='';
 const player=new DrawingPlayer(progress=>{
   const head=$('playhead');head.hidden=progress===null;
-  if(progress!==null){const b=bounds();head.style.left=(b.x+progress*b.w)+'px';$('play-position').textContent=(progress*drawing.settings.beats).toFixed(1)+' / '+drawing.settings.beats+' beats';}
-},()=>{$('paint-play').innerHTML='▶ <span>Play drawing</span>';$('paint-play').setAttribute('aria-label','Play drawing');$('paint-stop').disabled=true;});
+  if(progress!==null){
+    const b=bounds();let local=progress;
+    if(sequencePlayback){
+      const position=sequencePosition(sequencePlayback,progress*sequencePlayback.duration);local=position.progress;
+      if(playbackIndex!==position.segment.index){playbackIndex=position.segment.index;requestRender();for(const [i,card]of [...$('section-list').children].entries())card.classList.toggle('is-playing',i===playbackIndex);}
+      $('play-position').textContent=`Section ${playbackIndex+1} · bar ${position.bar} · beat ${position.beat.toFixed(1)}`;
+      $('section-now').textContent=`Playing ${position.segment.drawing.title} · ${musicalLabel(position.segment.drawing.settings)}`;
+    }else $('play-position').textContent=(progress*drawing.settings.beats).toFixed(1)+' / '+drawing.settings.beats+' beats';
+    head.style.left=(b.x+local*b.w)+'px';
+  }
+},()=>{
+  sequencePlayback=null;playbackImages=[];playbackIndex=-1;requestRender();
+  for(const card of $('section-list').children)card.classList.remove('is-playing');
+  $('section-now').textContent='Each drawing keeps its own musical settings.';
+  $('sequence-play').textContent='▶ Play sequence';
+  $('paint-play').innerHTML='▶ <span>Play drawing</span>';$('paint-play').setAttribute('aria-label','Play drawing');$('paint-stop').disabled=true;
+});
 
 function say(text,error=false){$('paint-message').textContent=text;$('paint-message').classList.toggle('error',error);}
 const safe=fn=>async(...args)=>{try{await fn(...args);}catch(e){say(e.message||String(e),true);}};
 function bounds(){return{x:48,y:20,w:paper.clientWidth-68,h:paper.clientHeight-48};}
-function stop(){player.stop();$('playhead').hidden=true;$('play-position').textContent='0.0 / '+drawing.settings.beats+' beats';}
+function stop(){playIntent++;player.stop();$('playhead').hidden=true;$('play-position').textContent='0.0 / '+drawing.settings.beats+' beats';}
 function snapshot(){return structuredClone(drawing);}
-function record(before){history.push(before);if(history.length>40)history.shift();future.length=0;}
-function persist(){clearTimeout(saveTimer);saveTimer=setTimeout(()=>{
-  try{localStorage.setItem(STORAGE,JSON.stringify(drawing));$('save-status').textContent='Saved on this device';}
-  catch{$('save-status').textContent='Download an editable copy to save';say('This browser could not save the drawing locally. Use “Save editable drawing” to keep it.');}
-},180);}
+function syncSection(){project.sections[project.active]=drawing;}
+function projectSnapshot(){syncSection();return structuredClone(project);}
+function remember(p){history.push(p);if(history.length>20)history.shift();future.length=0;}
+function record(before){const p=projectSnapshot();p.sections[p.active]=before;remember(p);}
+function persist(){clearTimeout(saveTimer);$('save-status').textContent='Saving on this device…';saveTimer=setTimeout(saveNow,180);}
+function saveNow(){
+  clearTimeout(saveTimer);const value=projectSnapshot();
+  saveQueue=saveQueue.catch(()=>{}).then(()=>saveDraft(value));
+  saveQueue.then(()=>{$('save-status').textContent='Saved on this device';},()=>{$('save-status').textContent='Download an editable sequence to save';say('This device could not save the sequence. Use “Save editable sequence” for a backup.',true);});
+}
+function renderSections(){
+  $('section-list').replaceChildren();let beats=0,seconds=0;
+  project.sections.forEach((section,index)=>{
+    const card=document.createElement('button');card.className='section-card';card.setAttribute('aria-pressed',index===project.active);card.setAttribute('aria-label',`Section ${index+1}: ${section.title}`);card.dataset.section=index;
+    if(section.image){const image=document.createElement('img');image.src=section.image.dataURL;image.alt='';card.append(image);}
+    else {const thumbnail=document.createElement('canvas');thumbnail.width=180;thumbnail.height=90;paintMarks(thumbnail.getContext('2d'),section,null,{x:4,y:4,w:172,h:82},.6);card.append(thumbnail);}
+    const title=document.createElement('strong');title.textContent=`${index+1}. ${section.title}`;
+    const detail=document.createElement('small'),first=Math.floor(beats/project.beatsPerBar)+1,last=Math.ceil((beats+section.settings.beats)/project.beatsPerBar);
+    detail.textContent=`Bars ${first}–${last} · ${section.settings.beats} beats · ${section.settings.bpm} BPM`;card.append(title,detail);card.onclick=safe(()=>selectSection(index));$('section-list').append(card);
+    beats+=section.settings.beats;seconds+=section.settings.beats*60/section.settings.bpm;
+  });
+  $('sequence-summary').textContent=`${project.sections.length} sections · ${Math.ceil(beats/project.beatsPerBar)} bars · ${seconds.toFixed(1)} seconds`;
+  $('section-title').value=drawing.title;$('sequence-title').value=project.title;$('sequence-meter').value=project.beatsPerBar;
+  $('move-section-left').disabled=project.active===0;$('move-section-right').disabled=project.active===project.sections.length-1;$('remove-section').disabled=project.sections.length===1;
+  $('add-section').disabled=$('duplicate-section').disabled=project.sections.length>=MAX_SECTIONS;
+}
+async function selectSection(index){stop();syncSection();project.active=index;drawing=project.sections[index];await hydrateImage();update({fields:true});}
+function exportSequence(){const p=projectSnapshot();if($('export-scope').value==='current'){p.sections=[snapshot()];p.active=0;}return compileSequence(p);}
+async function playSequence(){
+  if(player.playing){stop();return;}stop();const intent=playIntent,sequence=compileSequence(projectSnapshot());assertPlayableSequence(sequence);
+  $('sequence-play').disabled=true;
+  try{
+    await player.ready();const images=await loadSectionImages(sequence.segments.map(s=>s.drawing));if(playIntent!==intent)return;
+    await player.play(sequence.events,secondsSettings(sequence),{loop:$('loop').checked});
+    sequencePlayback=sequence;playbackImages=images;playbackIndex=-1;$('sequence-play').textContent='■ Stop sequence';$('paint-stop').disabled=false;
+    say(sequence.dropped?'Playing the sequence. Some dense overlapping marks were limited to 12 simultaneous notes.':'Playing every section continuously in the arranged order.');
+  }finally{$('sequence-play').disabled=false;}
+}
+async function addSection({duplicate=false}={}){
+  if(project.sections.length>=MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
+  stop();remember(projectSnapshot());const next=duplicate?snapshot():blankDrawing();if(!duplicate)next.settings={...drawing.settings};next.title=duplicate?drawing.title+' copy':'Drawing '+(project.sections.length+1);
+  project.sections.splice(project.active+1,0,next);project.active++;drawing=next;await hydrateImage();update({fields:true});
+}
 function update({fields=false}={}){
-  compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
+  syncSection();renderSections();compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
   $('empty-hint').hidden=!!(drawing.strokes.length||drawing.image||drawing.guide);
   $('undo-drawing').disabled=!history.length;$('redo-drawing').disabled=!future.length;
   $('image-strip').hidden=!drawing.image;
@@ -41,13 +98,14 @@ function renderPaper({exporting=false}={}){
   const dpr=window.devicePixelRatio||1,w=paper.clientWidth,h=paper.clientHeight;
   if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}
   const g=canvas.getContext('2d');g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);g.fillStyle='#fffdf8';g.fillRect(0,0,w,h);
-  const b=bounds(),s=drawing.settings,notes=pitchesFor(s),rowH=b.h/notes.length;
-  if(imageBitmap){g.save();g.globalAlpha=drawing.image?.mode==='reference'?.28:.93;g.drawImage(imageBitmap,b.x,b.y,b.w,b.h);g.restore();}
+  const displayed=sequencePlayback?.segments[playbackIndex]?.drawing||drawing,displayImage=sequencePlayback?playbackImages[playbackIndex]:imageBitmap;
+  const b=bounds(),s=displayed.settings,notes=pitchesFor(s),rowH=b.h/notes.length;
+  if(displayImage){g.save();g.globalAlpha=displayed.image?.mode==='reference'?.28:.93;g.drawImage(displayImage,b.x,b.y,b.w,b.h);g.restore();}
   if(grid&&!exporting){
     g.save();g.font='9px Verdana,sans-serif';g.textBaseline='middle';
     notes.forEach((pitch,i)=>{
       const y=b.y+(notes.length-i-.5)*rowH;
-      if(i%2===0&&!imageBitmap){g.fillStyle='#e9eee128';g.fillRect(b.x,y-rowH/2,b.w,rowH);}
+      if(i%2===0&&!displayImage){g.fillStyle='#e9eee128';g.fillRect(b.x,y-rowH/2,b.w,rowH);}
       g.strokeStyle=pitch%12===s.key?'#c5d2bc':'#e4e9dc';g.lineWidth=.7;g.beginPath();g.moveTo(b.x,y+rowH/2);g.lineTo(b.x+b.w,y+rowH/2);g.stroke();
       g.fillStyle='#71816b';g.textAlign='right';if(rowH>10||i%2===0)g.fillText(noteName(pitch),b.x-9,y);
     });
@@ -58,13 +116,13 @@ function renderPaper({exporting=false}={}){
       if(beat&&(s.beats<=16||i/s.quantize%2===0)){g.fillStyle='#85927b';g.textAlign='center';g.fillText(i/s.quantize,x,b.y+b.h+16);}
     }g.restore();
   }
-  if(drawing.guide&&showGuide&&!exporting){
+  if(displayed.guide&&showGuide&&!exporting){
     g.save();g.strokeStyle='#91a68b';g.fillStyle='#91a68b';g.globalAlpha=.5;g.lineWidth=3;g.setLineDash([4,5]);
-    for(const e of drawing.guide.events){const ny=yForPitch(e.pitch,s);if(ny===null)continue;const x=b.x+e.start/s.beats*b.w,y=b.y+ny*b.h;g.beginPath();g.moveTo(x,y);g.lineTo(b.x+(e.start+e.duration)/s.beats*b.w,y);g.stroke();g.beginPath();g.arc(x,y,3,0,Math.PI*2);g.fill();}
+    for(const e of displayed.guide.events){const ny=yForPitch(e.pitch,s);if(ny===null)continue;const x=b.x+e.start/s.beats*b.w,y=b.y+ny*b.h;g.beginPath();g.moveTo(x,y);g.lineTo(b.x+(e.start+e.duration)/s.beats*b.w,y);g.stroke();g.beginPath();g.arc(x,y,3,0,Math.PI*2);g.fill();}
     g.restore();
   }
   g.save();g.beginPath();g.rect(b.x,b.y,b.w,b.h);g.clip();g.lineCap='round';g.lineJoin='round';
-  for(const st of drawing.strokes){g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===st.voice).color;g.lineWidth=st.size;g.beginPath();st.points.forEach(([x,y],i)=>{if(i)g.lineTo(b.x+x*b.w,b.y+y*b.h);else g.moveTo(b.x+x*b.w,b.y+y*b.h);});const isDot=st.points.every(([x,y])=>x===st.points[0][0]&&y===st.points[0][1]);if(isDot){g.arc(b.x+st.points[0][0]*b.w,b.y+st.points[0][1]*b.h,st.size/2,0,Math.PI*2);g.fill();}else g.stroke();}
+  for(const st of displayed.strokes){g.strokeStyle=g.fillStyle=VOICES.find(v=>v.id===st.voice).color;g.lineWidth=st.size;g.beginPath();st.points.forEach(([x,y],i)=>{if(i)g.lineTo(b.x+x*b.w,b.y+y*b.h);else g.moveTo(b.x+x*b.w,b.y+y*b.h);});const isDot=st.points.every(([x,y])=>x===st.points[0][0]&&y===st.points[0][1]);if(isDot){g.arc(b.x+st.points[0][0]*b.w,b.y+st.points[0][1]*b.h,st.size/2,0,Math.PI*2);g.fill();}else g.stroke();}
   g.restore();
 }
 function point(e){const r=canvas.getBoundingClientRect(),b=bounds();return[Math.max(0,Math.min(1,(e.clientX-r.left-b.x)/b.w)),Math.max(0,Math.min(1,(e.clientY-r.top-b.y)/b.h))];}
@@ -92,12 +150,12 @@ function selectVoice(id){selected=id;const v=VOICES.find(v=>v.id===id);document.
 function palette(){for(const v of VOICES){const btn=document.createElement('button');btn.className='swatch';btn.dataset.voice=v.id;btn.style.setProperty('--swatch',v.color);btn.setAttribute('aria-label',v.name+' · '+v.hint);btn.setAttribute('title',v.hint);btn.setAttribute('aria-pressed',v.id===selected);const dot=document.createElement('span');dot.className='color';const label=document.createElement('span');label.textContent=v.name;btn.append(dot,label);btn.onclick=()=>selectVoice(v.id);$('palette').append(btn);}}
 async function hydrateImage(){imageBitmap=null;if(drawing.image){const im=new Image();im.src=drawing.image.dataURL;await im.decode();imageBitmap=im;}requestRender();}
 async function replace(p){stop();record(snapshot());drawing=validateDrawing(p);await hydrateImage();update({fields:true});}
-async function undo(){if(!history.length)return;stop();future.push(snapshot());drawing=history.pop();await hydrateImage();update({fields:true});say('Undone.');}
-async function redo(){if(!future.length)return;stop();history.push(snapshot());drawing=future.pop();await hydrateImage();update({fields:true});say('Redone.');}
+async function undo(){if(!history.length)return;stop();future.push(projectSnapshot());project=history.pop();drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Undone.');}
+async function redo(){if(!future.length)return;stop();history.push(projectSnapshot());project=future.pop();drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Redone.');}
 async function playEvents(events,{guide=false}={}){
   if(!events.length){say('Make a colored mark first, open a drawing, or try the singing garden.');return;}
   if(events.length>1500)throw Error('This drawing is very dense. Choose a coarser Snap or simplify the image before playing.');
-  await player.play(events,drawing.settings,{loop:!guide&&$('loop').checked});$('paint-play').innerHTML='Ⅱ <span>Stop playing</span>';$('paint-play').setAttribute('aria-label','Stop playing');$('paint-stop').disabled=false;
+  stop();await player.play(events,drawing.settings,{loop:!guide&&$('loop').checked});$('paint-play').innerHTML='Ⅱ <span>Stop playing</span>';$('paint-play').setAttribute('aria-label','Stop playing');$('paint-stop').disabled=false;
   if(guide)say('Playing the reference notes. The guide itself remains silent on your paper.');else if(!compiled.dropped)say('Your drawing is playing. Every color has its own instrument voice.');
 }
 async function addGuide(raw){
@@ -107,44 +165,58 @@ async function addGuide(raw){
 }
 function SCALE_VALID(s){return[2,3,4,5].includes(s.octave);}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),2000);}
-const fileName=()=>drawing.title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'singing-drawing';
+const fileName=(title=drawing.title)=>title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')||'singing-drawing';
 async function readImage(file){
   if(!file)return;if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Choose a PNG, JPEG or WebP drawing.');if(file.size>10000000)throw Error('Choose an image smaller than 10 MB.');
   if(previewURL)URL.revokeObjectURL(previewURL);previewURL=URL.createObjectURL(file);const im=new Image();im.src=previewURL;await im.decode();
   const c=document.createElement('canvas');c.width=1024;c.height=512;const g=c.getContext('2d');g.clearRect(0,0,c.width,c.height);const scale=Math.min(c.width/im.width,c.height/im.height),w=im.width*scale,h=im.height*scale;g.drawImage(im,(c.width-w)/2,(c.height-h)/2,w,h);
+  pendingBatch=[];pendingTitle=file.name.replace(/\.[^.]+$/,'');$('image-dialog-title').textContent='Give this image a voice.';
   pendingImage=c;$('image-preview').src=c.toDataURL('image/png');$('image-dialog').showModal();
 }
+function imagePayload(source,mode){
+  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(source,0,0,256,128);
+  const voice=mode==='one'?VOICES.findIndex(v=>v.id===selected):null;
+  return {dataURL:source.toDataURL('image/png'),points:pixelsToPoints(g.getImageData(0,0,256,128).data,256,128,{voice,sensitivity:Number($('image-sensitivity').value)}),mode:mode==='reference'?'reference':'sound'};
+}
+async function canvasFromFile(file){
+  if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>10000000)throw Error('Choose PNG, JPG or WebP files under 10 MB each.');
+  const url=URL.createObjectURL(file),image=new Image();
+  try{image.src=url;await image.decode();const c=document.createElement('canvas');c.width=1024;c.height=512;const scale=Math.min(1024/image.width,512/image.height),w=image.width*scale,h=image.height*scale;c.getContext('2d').drawImage(image,(1024-w)/2,(512-h)/2,w,h);return c;}finally{URL.revokeObjectURL(url);}
+}
+async function readBatch(files){
+  if(!files.length)return;
+  if(files.length+project.sections.length-(project.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide?1:0)>MAX_SECTIONS)throw Error('Use up to 64 sections per project.');
+  await readImage(files[0]);pendingBatch=files;$('image-dialog-title').textContent=`Import ${files.length} plans as sections.`;
+}
 async function applyImage(){
-  if(!pendingImage)return;const mode=document.querySelector('input[name="image-treatment"]:checked').value;
-  const c=document.createElement('canvas');c.width=256;c.height=128;const g=c.getContext('2d',{willReadFrequently:true});g.drawImage(pendingImage,0,0,256,128);
-  const data=g.getImageData(0,0,256,128).data,voice=mode==='one'?VOICES.findIndex(v=>v.id===selected):null;
-  const points=pixelsToPoints(data,256,128,{voice,sensitivity:Number($('image-sensitivity').value)}),dataURL=pendingImage.toDataURL('image/png');
-  if(dataURL.length>4000000)throw Error('This image is too detailed to save. Try a smaller line drawing.');
-  const next=snapshot();next.image={dataURL,points,mode:mode==='reference'?'reference':'sound'};await replace(next);$('image-dialog').close();pendingImage=null;
-  if(!points.length&&mode!=='reference')say('No dark or colored marks were found. Try a darker drawing or lower “Ignore light background”.');
-  else if(!compiled.dropped)say(mode==='reference'?'Image added as a silent reference. Draw colored marks on top.':'Image added. Press Play to hear its colors. This is an approximate musical interpretation.');
+  if(!pendingImage)return;const mode=document.querySelector('input[name="image-treatment"]:checked').value,button=$('apply-image');button.disabled=true;
+  try{
+    if(pendingBatch.length){
+      const sections=[];for(const file of pendingBatch){const next=blankDrawing();next.settings={...drawing.settings};next.title=file.name.replace(/\.[^.]+$/,'');next.image=imagePayload(await canvasFromFile(file),mode);sections.push(validateDrawing(next));}
+      const next=projectSnapshot(),empty=next.sections.length===1&&!drawing.strokes.length&&!drawing.image&&!drawing.guide;
+      if(empty)next.sections=[];const first=next.sections.length;next.sections.push(...sections);next.active=first;const checked=validateSequence(next);
+      stop();remember(projectSnapshot());project=checked;drawing=project.sections[project.active];await hydrateImage();update({fields:true});
+      say(`${sections.length} drawings added as ordered sections. Use the arrows to arrange them, then Play sequence.`);
+    }else{
+      const next=snapshot();next.image=imagePayload(pendingImage,mode);if(next.title==='My singing drawing')next.title=pendingTitle;
+      await replace(validateDrawing(next));say(mode==='reference'?'Image added as a silent reference.':'Image added. Press Play drawing or Play sequence. Pixel interpretation is approximate.');
+    }
+    $('image-dialog').close();pendingImage=null;pendingBatch=[];
+  }finally{button.disabled=false;}
 }
 async function exportVideo(){
   if(videoExport)return;
-  if(!compiled.events.length){say('Draw something musical first, or make your imported image sing.');return;}
-  if(compiled.events.length>1500)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');
-  stop();
-  // Freeze both image and music before awaiting anything. Later edits and window
-  // resizing cannot change the exported artwork or its notes.
-  renderPaper({exporting:true});
-  const frame=document.createElement('canvas'),scale=Math.min(1,1920/canvas.width,1080/canvas.height);
-  frame.width=Math.max(2,Math.floor(canvas.width*scale/2)*2);frame.height=Math.max(2,Math.floor(canvas.height*scale/2)*2);
-  frame.getContext('2d').drawImage(canvas,0,0,frame.width,frame.height);requestRender();
-  const events=structuredClone(compiled.events),settings={...drawing.settings},name=fileName()+'.mp4';
+  const sequence=exportSequence();assertPlayableSequence(sequence);stop();
+  const name=fileName($('export-scope').value==='current'?drawing.title:project.title)+'.mp4';
   if(videoURL){URL.revokeObjectURL(videoURL);videoURL=null;}
   const preview=$('video-preview'),link=$('video-download');preview.pause();preview.removeAttribute('src');preview.load();preview.hidden=true;link.hidden=true;link.removeAttribute('href');
   const controller=new AbortController();videoExport=controller;
   $('video-progress').hidden=false;$('video-progress').value=0;$('video-status').textContent='Preparing sound…';$('video-status').classList.remove('error');$('video-close').textContent='Cancel export';$('export-video').disabled=true;
   $('video-dialog').showModal();
   try{
-    const blob=await renderMp4({canvas:frame,events,settings,volume:Number($('paint-volume').value)/100,signal:controller.signal,onProgress:(progress,label)=>{$('video-progress').value=progress;$('video-status').textContent=label+' '+Math.round(progress*100)+'%';}});
+    const blob=await renderMp4({painter:createVideoPainter(sequence),events:sequence.events,settings:secondsSettings(sequence),volume:Number($('paint-volume').value)/100,signal:controller.signal,onProgress:(progress,label)=>{$('video-progress').value=progress;$('video-status').textContent=label+' '+Math.round(progress*100)+'%';}});
     videoURL=URL.createObjectURL(blob);preview.src=videoURL;preview.hidden=false;link.href=videoURL;link.download=name;link.hidden=false;
-    $('video-status').textContent='Ready: your drawing and sound, one loop with a short ringing tail. Preview it, then download your MP4.';say('Video ready. Download your MP4 from the preview.');
+    $('video-status').textContent='Ready: your drawings and sound, with musical labels and a synchronized playhead. Preview it, then download your MP4.';say('Video ready. Download your MP4 from the preview.');
   }catch(e){
     const cancelled=controller.signal.aborted;
     $('video-status').textContent=cancelled?'Video export cancelled. Your drawing is safe.':e.message||String(e);$('video-status').classList.toggle('error',!cancelled);
@@ -154,6 +226,15 @@ async function exportVideo(){
   }
 }
 function bind(){
+  $('sequence-play').onclick=safe(playSequence);
+  $('add-section').onclick=safe(()=>addSection());$('duplicate-section').onclick=safe(()=>addSection({duplicate:true}));
+  $('section-title').onchange=()=>{stop();record(snapshot());drawing.title=$('section-title').value.trim()||'Untitled drawing';update();};
+  $('sequence-title').onchange=()=>{stop();remember(projectSnapshot());project.title=$('sequence-title').value.trim()||'My drawing sequence';update();};
+  $('sequence-meter').onchange=()=>{stop();remember(projectSnapshot());project.beatsPerBar=Number($('sequence-meter').value);update();};
+  for(const [id,delta]of [['move-section-left',-1],['move-section-right',1]])$(id).onclick=safe(async()=>{stop();remember(projectSnapshot());moveSection(project,project.active,project.active+delta);drawing=project.sections[project.active];update();});
+  $('remove-section').onclick=safe(async()=>{if(project.sections.length===1)return;stop();remember(projectSnapshot());project.sections.splice(project.active,1);project.active=Math.min(project.active,project.sections.length-1);drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Section removed. Undo restores it.');});
+  $('import-sections').onclick=()=>$('section-files').click();$('section-files').onchange=safe(async e=>{await readBatch([...e.target.files]);e.target.value='';});
+
   $('pen-tool').onclick=()=>setTool('pen');$('eraser-tool').onclick=()=>setTool('erase');$('undo-drawing').onclick=safe(undo);$('redo-drawing').onclick=safe(redo);
   $('grid-toggle').onclick=()=>{grid=!grid;$('grid-toggle').setAttribute('aria-pressed',grid);requestRender();};
   $('clear-drawing').onclick=safe(async()=>{const p=snapshot();p.strokes=[];p.image=null;await replace(p);say('Paper cleared. Undo brings your drawing back.');});
@@ -180,10 +261,13 @@ function bind(){
   $('image-mode-toggle').onclick=()=>{stop();record(snapshot());drawing.image.mode=drawing.image.mode==='sound'?'reference':'sound';update();};
   $('remove-image').onclick=safe(async()=>{const p=snapshot();p.image=null;await replace(p);say('Image removed. Undo brings it back.');});
   $('open-image').onclick=()=>$('image-file').click();$('image-file').onchange=safe(async e=>{await readImage(e.target.files[0]);e.target.value='';});$('apply-image').onclick=safe(applyImage);
-  $('save-project').onclick=()=>{download(new Blob([JSON.stringify(drawing)],{type:'application/json'}),fileName()+'.drawing.json');say('Editable drawing saved. Open this JSON file here on any device.');};
-  $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>6000000)throw Error('Choose a drawing project smaller than 6 MB.');const p=validateDrawing(JSON.parse(await file.text()));await replace(p);say('Editable drawing opened.');e.target.value='';});
+  $('save-project').onclick=()=>{download(new Blob([JSON.stringify(projectSnapshot())],{type:'application/json'}),fileName(project.title)+'.sequence.json');say('Editable sequence saved with all drawings, images, order and musical settings.');};
+  $('open-project').onclick=()=>$('project-file').click();$('project-file').onchange=safe(async e=>{const file=e.target.files[0];if(!file)return;if(file.size>120000000)throw Error('Choose a project smaller than 120 MB.');const next=validateSequence(JSON.parse(await file.text()));stop();remember(projectSnapshot());project=next;drawing=project.sections[project.active];await hydrateImage();update({fields:true});say('Editable project opened. Legacy drawings become a one-section sequence.');e.target.value='';});
   $('export-picture').onclick=safe(async()=>{renderPaper({exporting:true});try{const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));if(!blob)throw Error('Picture export failed. Please try again.');download(blob,fileName()+'.png');say('Picture saved. Silent melody guides are left out of the exported drawing.');}finally{requestRender();}});
-  $('export-wav').onclick=safe(async()=>{if(!compiled.events.length){say('Draw something musical first.');return;}if(compiled.events.length>1500)throw Error('Choose a coarser Snap or fewer marks before exporting this dense drawing.');const btn=$('export-wav');btn.disabled=true;btn.textContent='Rendering audio…';say('Making one full loop of your drawing into a WAV file…');try{const wav=await renderWav(compiled.events,drawing.settings,Number($('paint-volume').value)/100);download(new Blob([wav],{type:'audio/wav'}),fileName()+'.wav');say('Audio saved: one loop with a short ringing tail.');}finally{btn.disabled=false;btn.textContent='↓ Audio WAV';}});
+  $('export-wav').onclick=safe(async()=>{
+    const sequence=exportSequence();assertPlayableSequence(sequence);const btn=$('export-wav');btn.disabled=true;btn.textContent='Rendering audio…';
+    try{const wav=await renderWav(sequence.events,secondsSettings(sequence),Number($('paint-volume').value)/100);download(new Blob([wav],{type:'audio/wav'}),fileName($('export-scope').value==='current'?drawing.title:project.title)+'.wav');say('Audio saved with continuous sections and a final ringing tail.');}finally{btn.disabled=false;btn.textContent='↓ Audio WAV';}
+  });
   $('export-video').onclick=safe(exportVideo);
   $('video-close').onclick=()=>{if(videoExport)videoExport.abort();else $('video-dialog').close();};
   $('video-dialog').addEventListener('cancel',e=>{if(videoExport){e.preventDefault();videoExport.abort();}});
@@ -195,13 +279,13 @@ function bind(){
     else if(e.code==='Space'){e.preventDefault();if(player.playing)stop();else await playEvents(compiled.events);}
     else if(e.key.toLowerCase()==='p')setTool('pen');else if(e.key.toLowerCase()==='e')setTool('erase');
   }));
-  window.addEventListener('pagehide',()=>{stop();videoExport?.abort();clearTimeout(saveTimer);try{localStorage.setItem(STORAGE,JSON.stringify(drawing));}catch{}});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden)stop();});
+  window.addEventListener('pagehide',()=>{stop();videoExport?.abort();saveNow();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){stop();saveNow();}});
   new ResizeObserver(requestRender).observe(paper);
 }
 try{
-  try{const saved=JSON.parse(localStorage.getItem(STORAGE)||'null');if(saved)drawing=validateDrawing(saved);}catch{$('save-status').textContent='New paper';}
-  palette();bind();selectVoice('keys');await hydrateImage();update({fields:true});
+  try{const saved=await loadDraft();if(saved){project=validateSequence(saved);drawing=project.sections[project.active];}}catch{$('save-status').textContent='New paper';}
+  palette();bind();selectVoice('keys');await hydrateImage();update({fields:true});document.documentElement.dataset.ready='true';
   let guide;try{guide=JSON.parse(sessionStorage.getItem('singing-sketchbook-guide')||'null');sessionStorage.removeItem('singing-sketchbook-guide');}catch{}
   if(guide)await addGuide(guide);
 }catch(e){say('Could not open the drawing studio: '+e.message,true);}

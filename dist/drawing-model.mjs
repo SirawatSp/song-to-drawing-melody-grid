@@ -36,7 +36,7 @@ export function yForPitch(pitch,s) {
 export function validateDrawing(raw) {
   if(!raw||raw.format!=='singing-sketchbook'||raw.version!==1)throw Error('Choose a Singing Sketchbook project JSON.');
   const p=structuredClone(raw),s=p.settings;
-  if(!s||!Number.isFinite(s.bpm)||s.bpm<20||s.bpm>240||!Number.isInteger(s.key)||s.key<0||s.key>11||!SCALE_INTERVALS[s.scale]||![2,3,4,5].includes(s.octave)||![1,2,3].includes(s.range)||![4,8,16,32].includes(s.beats)||![1,2,3,4,6,8].includes(s.quantize))throw Error('The project has unsupported musical settings.');
+  if(!s||!Number.isFinite(s.bpm)||s.bpm<20||s.bpm>240||!Number.isInteger(s.key)||s.key<0||s.key>11||!SCALE_INTERVALS[s.scale]||![2,3,4,5].includes(s.octave)||![1,2,3].includes(s.range)||![3,4,6,8,12,16,24,32].includes(s.beats)||![1,2,3,4,6,8].includes(s.quantize))throw Error('The project has unsupported musical settings.');
   p.title=String(p.title||'My singing drawing').slice(0,120);
   const pointOK=q=>Array.isArray(q)&&q.length>=2&&q.slice(0,2).every(n=>typeof n==='number'&&Number.isFinite(n)&&n>=0&&n<=1);
   if(!Array.isArray(p.strokes)||p.strokes.length>1000)throw Error('Use up to 1,000 strokes in one drawing.');

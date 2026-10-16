@@ -19,6 +19,7 @@ async function ready(){
   assert.equal(await page.locator('#video-download').isVisible(),true,await page.locator('#video-status').textContent());
 }
 await page.goto('http://localhost:8000/paint.html',{waitUntil:'domcontentloaded'});
+await page.waitForFunction(()=>document.documentElement.dataset.ready==='true');
 console.log('capabilities',await page.evaluate(()=>({ua:navigator.userAgent,types:['video/mp4;codecs=avc1.42E01E,mp4a.40.2','video/mp4;codecs=avc1,mp4a.40.2','video/mp4;codecs=avc1,opus','video/mp4'].map(t=>[t,MediaRecorder.isTypeSupported(t)])})));
 await page.click('#demo');await page.waitForFunction(()=>document.querySelector('#drawing-stats').textContent.includes('35 strokes'));
 await page.click('#export-video');await ready();
