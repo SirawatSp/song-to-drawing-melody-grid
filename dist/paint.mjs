@@ -6,7 +6,7 @@ import {loadDraft,saveDraft} from './drawing-storage.mjs';
 import {createVideoPainter,createSectionImageCache,paintMarks,musicalLabel} from './drawing-visual.mjs';
 import {noteName,validate as validateGuide} from './model.mjs';
 import {ImageImporter,currentPolicy} from './image-import.mjs';
-import {MAX_PROJECT_FILE_BYTES,MAX_PROJECT_IMAGE_CHARS,imageSampleCount} from './image-data.mjs';
+import {MAX_PROJECT_FILE_BYTES,MAX_PROJECT_IMAGE_CHARS,imageSampleCount,trimImageHistory} from './image-data.mjs';
 
 const $=id=>document.getElementById(id),canvas=$('drawing'),paper=$('paper');
 const history=[],future=[];
@@ -85,7 +85,7 @@ async function addSection({duplicate=false}={}){
   project.sections.splice(project.active+1,0,next);project.active++;drawing=next;await hydrateImage();update({fields:true});
 }
 function update({fields=false}={}){
-  syncSection();renderSections();compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
+  syncSection();trimImageHistory(project,history,future);renderSections();compiled=compileDrawing(drawing);$('drawing-stats').textContent=drawing.strokes.length+' strokes · '+compiled.events.length+' notes';
   $('empty-hint').hidden=!!(drawing.strokes.length||drawing.image||drawing.guide);
   $('undo-drawing').disabled=!history.length;$('redo-drawing').disabled=!future.length;
   $('image-strip').hidden=!drawing.image;

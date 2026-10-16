@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {MAX_IMAGE_BYTES,importPolicy,fitImport,imageDimensions,encodeSamples,sampleCodes,validateSamples,imageSampleCount} from '../dist/image-data.mjs';
+import {MAX_IMAGE_BYTES,importPolicy,fitImport,imageDimensions,encodeSamples,sampleCodes,validateSamples,imageSampleCount,trimImageHistory} from '../dist/image-data.mjs';
 import {analyzeImage,poolInkPixels,prepareImage} from '../dist/image-import-core.mjs';
 import {blankDrawing,validateDrawing,compileDrawing,pixelsToPoints} from '../dist/drawing-model.mjs';
 import {blankSequence,validateSequence} from '../dist/drawing-sequence.mjs';
@@ -48,4 +48,11 @@ test('decoded image cache stays bounded to current/next plans and releases them'
   const cache=await new SectionImageCache(sections,()=>{const image={async decode(){}};made.push(image);return image;}).start();assert.equal(cache.entries.size,2);
   for(let index=0;index<20;index++){await cache.prepare(index);cache.step(index);await cache.prepare((index+1)%20);assert.equal(cache.entries.size,2);}
   assert.equal(made.filter(im=>im.src).length,2);cache.dispose();assert.equal(made.filter(im=>im.src).length,0);
+});
+
+test('image-heavy undo is bounded while shared images keep their edit history',()=>{
+  const a={dataURL:'a'.repeat(60)},b={dataURL:'b'.repeat(60)},c={dataURL:'c'.repeat(60)},project=image=>({sections:[{image}]});
+  const current=project(c),history=[project(a),project(b),project(c),project(c)],future=[];
+  trimImageHistory(current,history,future,120);assert.equal(history.length,3);assert.equal(history[0].sections[0].image,b);
+  future.push(project(a));trimImageHistory(current,history,future,120);assert.equal(history.length,2);assert.equal(future.length,1);
 });

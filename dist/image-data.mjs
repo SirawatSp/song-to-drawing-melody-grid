@@ -66,3 +66,10 @@ export function imageDimensions(bytes){
   }
   throw Error('The image header could not be read. Choose a valid PNG, JPEG or WebP, or re-export it without extra metadata.');
 }
+
+// Undo snapshots share immutable images. Trim the oldest snapshots if replacing
+// large plans would retain more raster data than the project budget permits.
+export function trimImageHistory(project,history,future,budget=MAX_PROJECT_IMAGE_CHARS){
+  const bytes=()=>{const seen=new Set();let total=0;for(const p of [project,...history,...future])for(const s of p.sections)if(s.image&&!seen.has(s.image)){seen.add(s.image);total+=s.image.dataURL.length;}return total;};
+  while((history.length||future.length)&&bytes()>budget){if(history.length)history.shift();else future.shift();}
+}
