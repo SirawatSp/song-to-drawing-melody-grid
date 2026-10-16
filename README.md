@@ -6,13 +6,19 @@ A persistent, versioned visual reference studio for turning **note events into d
 
 **Draw and hear your own picture:** https://sirawatsp.github.io/song-to-drawing-melody-grid/paint.html
 
-Choose from nine instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, or a WAV audio loop. All drawing controls are available without an unlock. The nine sounds are original synthesized timbres.
+Choose from nine instrument colors, draw with a mouse/finger/pen, then press Play. Open a PNG/JPEG/WebP to hear its colors, play it with one selected voice, or use it as a silent tracing reference. Save editable drawing JSON, PNG art, a WAV audio loop, or an MP4 video of the drawing with its sound. All drawing controls are available without an unlock. The nine sounds are original synthesized timbres.
 
 The grid editor's **Draw this melody** button sends its current note events to the sketchbook as a silent guide. **Make guide playable** creates separate colored strokes; source pitches outside the selected key/range are flagged, and timing approximated by Snap is reported. The existing melody source and recording-verification limits still apply.
 
 Drawing data autosaves in this browser. Imported images stay local; they are not uploaded to the repository or a transcription service. Download editable JSON to move a drawing between devices. The cloud repository stores the app and our original example, not automatic account-synced personal drawings.
 
 Original example: [garden drawing](dist/downloads/singing-garden.drawing.json), [PNG](dist/downloads/singing-garden.png), [WAV](dist/downloads/singing-garden.wav). Implementation and verification: [docs/drawing-studio.md](docs/drawing-studio.md).
+
+## Export a drawing with sound
+
+Choose **Video MP4** under **Keep your creation**, wait for one loop to record, then preview and choose **Download MP4**. It exports a still image of your paper with the same synthesized sound as WAV (one canvas loop plus a 0.5-second ringing tail). Grid and silent melody guides are omitted; imported pictures retain their current sound/reference treatment. The image and note events are frozen when you start.
+
+Keep this tab visible until it finishes. Cancel is available, and interruptions discard incomplete recordings. Everything runs locally; no microphone, camera, upload, external encoder or runtime dependency is needed. Native MP4 encoding is checked before recording; unsupported browsers show a clear message and retain PNG/WAV exports. H.264/AAC is preferred, with H.264/Opus or the browser's native MP4 choice when needed. Actual codec availability and playback compatibility depend on the browser/device. This does not promise universal MP4 export support.
 
 ## Melody grid
 
